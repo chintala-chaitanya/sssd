@@ -230,10 +230,11 @@ errno_t eval_access_token_buf(struct idp_auth_ctx *idp_auth_ctx,
                               uint8_t *buf, ssize_t buflen)
 {
     int ret;
-    const char *attrs[] = {SYSDB_UUID, NULL};
+    const char *attrs[] = {SYSDB_UUID, SYSDB_IDP_USER_IDENTIFIER, NULL};
     struct ldb_result *res = NULL;
     const char *user = pd->user;
     const char *uuid;
+    const char *idp_user_identifier;
     uint8_t *user_reply;
     size_t user_reply_len;
     json_error_t json_error;
@@ -294,11 +295,15 @@ errno_t eval_access_token_buf(struct idp_auth_ctx *idp_auth_ctx,
         goto done;
     }
 
-    if ((strlen(uuid) != user_reply_len) ||
-        (strncmp(uuid, (char *) user_reply, user_reply_len) != 0)) {
+    idp_user_identifier = ldb_msg_find_attr_as_string(res->msgs[0],
+                                                       SYSDB_IDP_USER_IDENTIFIER,
+                                                       uuid);
+
+    if ((strlen(idp_user_identifier) != user_reply_len) ||
+        (strncmp(idp_user_identifier, (char *) user_reply, user_reply_len) != 0)) {
         DEBUG(SSSDBG_OP_FAILURE,
-              "UUID [%s] of user [%s] and input [%.*s] do not match.\n",
-              uuid, user, (int) user_reply_len, user_reply);
+              "IdP user identifier [%s] of user [%s] and input [%.*s] do not match.\n",
+              idp_user_identifier, user, (int) user_reply_len, user_reply);
         ret = ENOENT;
         goto done;
     }

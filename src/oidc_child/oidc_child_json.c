@@ -416,7 +416,13 @@ errno_t parse_result(struct devicecode_ctx *dc_ctx)
     dc_ctx->verification_uri_complete = get_json_string(dc_ctx, root,
                                                    "verification_uri_complete");
     dc_ctx->message = get_json_string(dc_ctx, root, "message");
-    dc_ctx->interval = get_json_integer(root, "interval", true);
+    /* RFC 8628 section 3.5 specifies five seconds as the default polling
+     * interval when an authorization server omits this optional member. */
+    if (json_object_get(root, "interval") == NULL) {
+        dc_ctx->interval = 5;
+    } else {
+        dc_ctx->interval = get_json_integer(root, "interval", true);
+    }
     dc_ctx->expires_in = get_json_integer(root, "expires_in", true);
 
     ret = EOK;

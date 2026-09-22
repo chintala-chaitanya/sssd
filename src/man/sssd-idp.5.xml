@@ -63,8 +63,9 @@
                     <listitem>
                         <para>
                             Required option that specifies the IdP product.
-                            Currently Entra ID (entra_id) and Keycloak
-                            (keycloak) are supported.
+                            Currently Entra ID (entra_id), Keycloak (keycloak),
+                            and OCI IAM Identity Domains (oci_iam) are
+                            supported.
                         </para>
                         <para>
                              Depending on the IdP product additional platform
@@ -76,7 +77,10 @@
                              endpoints instead of the default
                              (https://graph.microsoft.com/v1.0). E.g.
                              <quote>entra_id:https://graph.microsoft.us/v1.0</quote>
-                             for the US government cloud (GCC High).
+                             for the US government cloud (GCC High). OCI IAM
+                             requires the base URI of its Identity Domain SCIM
+                             API, for example
+                             <quote>oci_iam:https://example.identity.oraclecloud.com</quote>.
                         </para>
                         <para>
                             Default: Not set (Required)
@@ -294,6 +298,18 @@ idp_userinfo_endpoint = https://master.keycloak.test:8443/auth/realms/master/pro
 idp_device_auth_endpoint = https://master.keycloak.test:8443/auth/realms/master/protocol/openid-connect/auth/device
 idp_id_scope = profile
 idp_auth_scope = openid profile email
+</programlisting>
+<programlisting>
+[domain/oci_iam]
+id_provider = idp
+idp_type = oci_iam:https://example.identity.oraclecloud.com
+idp_client_id = YOUR-CLIENT-ID
+idp_client_secret = YOUR-CLIENT-SECRET
+idp_token_endpoint = https://example.identity.oraclecloud.com/oauth2/v1/token
+idp_userinfo_endpoint = https://example.identity.oraclecloud.com/oauth2/v1/userinfo
+idp_device_auth_endpoint = https://example.identity.oraclecloud.com/oauth2/v1/device
+idp_id_scope = urn:opc:idm:__myscopes__
+idp_auth_scope = openid profile
 </programlisting>
         </para>
     </refsect1>

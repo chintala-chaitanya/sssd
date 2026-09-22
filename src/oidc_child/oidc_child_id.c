@@ -24,6 +24,8 @@
 
 #include "oidc_child/oidc_child_util.h"
 
+#include <jansson.h>
+
 #include "util/util.h"
 
 #define IS_ID_CMD(cmd) ( \
@@ -78,6 +80,310 @@ static errno_t parse_base_url_from_idp_type(TALLOC_CTX *mem_ctx,
 
     *_base_url = base_url;
     return EOK;
+}
+
+static errno_t oci_iam_get_resources(TALLOC_CTX *mem_ctx,
+                                     struct rest_ctx *rest_ctx,
+                                     const char *uri,
+                                     const char *bearer_token,
+                                     char **out)
+{
+    errno_t ret;
+    char *page_uri = NULL;
+    char *dump = NULL;
+    json_t *all = NULL;
+    json_t *root = NULL;
+    json_t *resources = NULL;
+    json_t *total_results = NULL;
+    json_error_t json_error;
+    json_int_t total;
+    size_t start_index = 1;
+    size_t received;
+    size_t index;
+    json_t *item;
+    char separator;
+
+    all = json_array();
+    if (all == NULL) {
+        return ENOMEM;
+    }
+
+    separator = strchr(uri, '?') == NULL ? '?' : '&';
+    do {
+        page_uri = talloc_asprintf(rest_ctx, "%s%cstartIndex=%zu&count=1000",
+                                   uri, separator, start_index);
+        if (page_uri == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+
+        clean_http_data(rest_ctx);
+        ret = do_http_request(rest_ctx, page_uri, NULL, bearer_token);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_OP_FAILURE, "OCI IAM SCIM request failed.\n");
+            goto done;
+        }
+
+        root = json_loads(get_http_data(rest_ctx), 0, &json_error);
+        if (root == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "Failed to parse OCI IAM SCIM response on line [%d]: [%s].\n",
+                  json_error.line, json_error.text);
+            ret = EINVAL;
+            goto done;
+        }
+
+        resources = json_object_get(root, "Resources");
+        total_results = json_object_get(root, "totalResults");
+        if (!json_is_array(resources) || !json_is_integer(total_results)) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "OCI IAM response is not a SCIM ListResponse.\n");
+            ret = EINVAL;
+            goto done;
+        }
+
+        total = json_integer_value(total_results);
+        if (total < 0) {
+            ret = EINVAL;
+            goto done;
+        }
+
+        received = json_array_size(resources);
+        json_array_foreach(resources, index, item) {
+            if (json_array_append(all, item) != 0) {
+                ret = ENOMEM;
+                goto done;
+            }
+        }
+
+        json_decref(root);
+        root = NULL;
+        page_uri = NULL;
+
+        if (received == 0 && start_index <= (size_t) total) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "OCI IAM returned an empty page before all results were read.\n");
+            ret = EIO;
+            goto done;
+        }
+        start_index += received;
+    } while (start_index <= (size_t) total);
+
+    dump = json_dumps(all, 0);
+    if (dump == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    *out = talloc_strdup(mem_ctx, dump);
+    free(dump);
+    ret = *out == NULL ? ENOMEM : EOK;
+done:
+    json_decref(root);
+    json_decref(all);
+    return ret;
+}
+
+static errno_t oci_iam_get_first_id(TALLOC_CTX *mem_ctx, const char *data,
+                                    char **out)
+{
+    json_t *array = NULL;
+    json_t *item = NULL;
+    json_t *id = NULL;
+    json_error_t json_error;
+
+    array = json_loads(data, 0, &json_error);
+    if (!json_is_array(array) || json_array_size(array) == 0) {
+        json_decref(array);
+        return ENOENT;
+    }
+
+    item = json_array_get(array, 0);
+    id = json_object_get(item, "id");
+    if (!json_is_string(id)) {
+        json_decref(array);
+        return EINVAL;
+    }
+
+    *out = talloc_strdup(mem_ctx, json_string_value(id));
+    json_decref(array);
+    return *out == NULL ? ENOMEM : EOK;
+}
+
+static errno_t oci_iam_normalize_resources(TALLOC_CTX *mem_ctx,
+                                           enum oidc_cmd oidc_cmd,
+                                           const char *data, char **out)
+{
+    json_t *array = NULL;
+    json_t *normalized = NULL;
+    json_t *item = NULL;
+    json_t *id = NULL;
+    json_t *name = NULL;
+    json_t *object = NULL;
+    json_error_t json_error;
+    const char *name_attr;
+    const char *posix_name_attr;
+    const char *object_type;
+    bool is_user;
+    size_t index;
+    char *dump = NULL;
+    errno_t ret = EOK;
+
+    is_user = oidc_cmd == GET_USER || oidc_cmd == GET_GROUP_MEMBERS;
+    name_attr = is_user ? "userName" : "displayName";
+    posix_name_attr = is_user ? "posixUsername" : "posixGroupname";
+    object_type = is_user ? "user" : "group";
+
+    array = json_loads(data, 0, &json_error);
+    if (!json_is_array(array)) {
+        DEBUG(SSSDBG_OP_FAILURE,
+              "OCI IAM resources are not a JSON array on line [%d]: [%s].\n",
+              json_error.line, json_error.text);
+        ret = EINVAL;
+        goto done;
+    }
+
+    normalized = json_array();
+    if (normalized == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    json_array_foreach(array, index, item) {
+        id = json_object_get(item, "id");
+        name = json_object_get(item, name_attr);
+        if (!json_is_string(id) || !json_is_string(name)) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "OCI IAM object is missing '%s' or '%s'.\n", "id", name_attr);
+            ret = EINVAL;
+            goto done;
+        }
+
+        object = json_object();
+        if (object == NULL
+                || json_object_set(object, "id", id) != 0
+                || json_object_set(object, posix_name_attr, name) != 0
+                || json_object_set_new(object, "posixObjectType",
+                                       json_string(object_type)) != 0
+                || (is_user && json_object_set(object, "idpUserIdentifier",
+                                                name) != 0)) {
+            json_decref(object);
+            ret = ENOMEM;
+            goto done;
+        }
+
+        ret = json_array_append_new(normalized, object);
+        object = NULL;
+        if (ret != 0) {
+            ret = ENOMEM;
+            goto done;
+        }
+    }
+
+    dump = json_dumps(normalized, 0);
+    if (dump == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    *out = talloc_strdup(mem_ctx, dump);
+    free(dump);
+    ret = *out == NULL ? ENOMEM : EOK;
+done:
+    json_decref(object);
+    json_decref(normalized);
+    json_decref(array);
+    return ret;
+}
+
+static errno_t oci_iam_lookup(TALLOC_CTX *mem_ctx, enum oidc_cmd oidc_cmd,
+                              char *base_url, char *input,
+                              enum search_str_type input_type,
+                              bool libcurl_debug, const char *ca_db,
+                              const char *client_id,
+                              const char *client_secret,
+                              const char *token_endpoint, const char *scope,
+                              const char *bearer_token,
+                              struct rest_ctx *rest_ctx, char **out)
+{
+    errno_t ret;
+    char *filter = NULL;
+    char *filter_enc = NULL;
+    char *uri = NULL;
+    char *resources = NULL;
+    char *object_id = NULL;
+
+    if (base_url == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, "Missing base URL in IdP type [oci_iam].\n");
+        return EINVAL;
+    }
+
+    switch (oidc_cmd) {
+    case GET_USER:
+    case GET_USER_GROUPS:
+        filter = talloc_asprintf(rest_ctx, "userName eq \"%s\"", input);
+        break;
+    case GET_GROUP:
+    case GET_GROUP_MEMBERS:
+        filter = talloc_asprintf(rest_ctx, "displayName eq \"%s\"", input);
+        break;
+    default:
+        return EINVAL;
+    }
+    if (filter == NULL) {
+        return ENOMEM;
+    }
+
+    filter_enc = url_encode_string(rest_ctx, filter);
+    if (filter_enc == NULL) {
+        return ENOMEM;
+    }
+
+    uri = talloc_asprintf(rest_ctx, "%s/admin/v1/%s?filter=%s", base_url,
+                          (oidc_cmd == GET_USER || oidc_cmd == GET_USER_GROUPS)
+                              ? "Users" : "Groups", filter_enc);
+    if (uri == NULL) {
+        return ENOMEM;
+    }
+
+    ret = oci_iam_get_resources(mem_ctx, rest_ctx, uri, bearer_token,
+                                &resources);
+    if (ret != EOK || oidc_cmd == GET_USER || oidc_cmd == GET_GROUP) {
+        goto done;
+    }
+
+    ret = oci_iam_get_first_id(rest_ctx, resources, &object_id);
+    if (ret != EOK) {
+        goto done;
+    }
+
+    if (oidc_cmd == GET_USER_GROUPS) {
+        filter = talloc_asprintf(rest_ctx,
+                                 "members[type eq \"User\" and value eq \"%s\"]",
+                                 object_id);
+        filter_enc = url_encode_string(rest_ctx, filter);
+        uri = talloc_asprintf(rest_ctx, "%s/admin/v1/Groups?filter=%s",
+                              base_url, filter_enc);
+    } else {
+        filter = talloc_asprintf(rest_ctx, "groups.value eq \"%s\"",
+                                 object_id);
+        filter_enc = url_encode_string(rest_ctx, filter);
+        uri = talloc_asprintf(rest_ctx,
+                              "%s/admin/v1/Users?attributes=userName&filter=%s&sortBy=id",
+                              base_url, filter_enc);
+    }
+    if (filter == NULL || filter_enc == NULL || uri == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    ret = oci_iam_get_resources(mem_ctx, rest_ctx, uri, bearer_token,
+                                &resources);
+done:
+    if (ret == EOK && out != NULL) {
+        ret = oci_iam_normalize_resources(mem_ctx, oidc_cmd, resources, out);
+    }
+    return ret;
 }
 
 /* The following function will lookup users and groups based on Mircosoft's
@@ -535,6 +841,12 @@ errno_t oidc_get_id(TALLOC_CTX *mem_ctx, enum oidc_cmd oidc_cmd,
                               libcurl_debug, ca_db, client_id, client_secret,
                               token_endpoint, scope, bearer_token, rest_ctx,
                               out);
+    } else if (idp_type != NULL
+               && strncasecmp(idp_type, "oci_iam:", 8) == 0) {
+        ret = oci_iam_lookup(mem_ctx, oidc_cmd, base_url, input, input_type,
+                             libcurl_debug, ca_db, client_id, client_secret,
+                             token_endpoint, scope, bearer_token, rest_ctx,
+                             out);
     } else if (idp_type == NULL
                || strcasecmp(idp_type, "entra_id") == 0
                || strncasecmp(idp_type, "entra_id:", 9) == 0) {

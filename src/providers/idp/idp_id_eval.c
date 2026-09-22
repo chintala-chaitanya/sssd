@@ -34,6 +34,7 @@ static errno_t store_json_user(struct idp_id_ctx *idp_id_ctx, json_t *user,
     errno_t ret;
     json_t *user_name = NULL;
     json_t *uuid = NULL;
+    json_t *idp_user_identifier = NULL;
     int cache_timeout;
     struct sss_domain_info *dom;
     uid_t uid;
@@ -96,6 +97,24 @@ static errno_t store_json_user(struct idp_id_ctx *idp_id_ctx, json_t *user,
     if (ret != EOK) {
         DEBUG(SSSDBG_OP_FAILURE, "Failed to add UUID to user attributes.\n");
         goto done;
+    }
+
+    idp_user_identifier = json_object_get(user, "idpUserIdentifier");
+    if (idp_user_identifier != NULL) {
+        if (!json_is_string(idp_user_identifier)) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "JSON user object has invalid 'idpUserIdentifier'.\n");
+            ret = EINVAL;
+            goto done;
+        }
+
+        ret = sysdb_attrs_add_string(attrs, SYSDB_IDP_USER_IDENTIFIER,
+                                     json_string_value(idp_user_identifier));
+        if (ret != EOK) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "Failed to add IdP user identifier to user attributes.\n");
+            goto done;
+        }
     }
 
     cache_timeout = dom->user_timeout;

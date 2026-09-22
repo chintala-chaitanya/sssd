@@ -124,6 +124,7 @@
 #define SYSDB_CACHEDPWD_FA2_LEN "cachedPasswordSecondFactorLen"
 
 #define SYSDB_UUID "uniqueID"
+#define SYSDB_IDP_USER_IDENTIFIER "idpUserIdentifier"
 #define SYSDB_SID "objectSID"
 #define SYSDB_PRIMARY_GROUP "ADPrimaryGroupID"
 #define SYSDB_PRIMARY_GROUP_GIDNUM "origPrimaryGroupGidNumber"
