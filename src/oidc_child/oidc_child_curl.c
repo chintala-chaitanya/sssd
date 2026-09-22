@@ -797,14 +797,26 @@ errno_t get_devicecode(struct devicecode_ctx *dc_ctx,
         goto done;
     }
 
-    post_data = append_to_creds_to_post_data(post_data, dc_ctx->rest_ctx,
-                                             dc_ctx->token_endpoint,
-                                             client_id, client_secret);
-    if (post_data == NULL) {
-        DEBUG(SSSDBG_OP_FAILURE,
-              "Failed to add client credentials to POST data.\n");
-        ret = ENOMEM;
-        goto done;
+    if (dc_ctx->oci_iam) {
+        /* OCI IAM requires this parameter and unauthenticated device requests. */
+        post_data = append_to_post_data(post_data, "response_type",
+                                        "device_code");
+        if (post_data == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "Failed to add response_type to POST data.\n");
+            ret = ENOMEM;
+            goto done;
+        }
+    } else {
+        post_data = append_to_creds_to_post_data(post_data, dc_ctx->rest_ctx,
+                                                 dc_ctx->token_endpoint,
+                                                 client_id, client_secret);
+        if (post_data == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "Failed to add client credentials to POST data.\n");
+            ret = ENOMEM;
+            goto done;
+        }
     }
 
 

@@ -286,7 +286,8 @@ static struct devicecode_ctx *get_dc_ctx(TALLOC_CTX *mem_ctx,
                                          const char *jwks_uri, const char *scope,
                                          const char *pkcs12_client_creds,
                                          enum client_auth_method client_auth_method,
-                                         const char *key_passwd)
+                                         const char *key_passwd,
+                                         bool oci_iam)
 {
     struct devicecode_ctx *dc_ctx = NULL;
     int ret;
@@ -297,6 +298,8 @@ static struct devicecode_ctx *get_dc_ctx(TALLOC_CTX *mem_ctx,
         ret = ENOMEM;
         goto done;
     }
+
+    dc_ctx->oci_iam = oci_iam;
 
     dc_ctx->rest_ctx = get_rest_ctx(dc_ctx, libcurl_debug, ca_db,
                                     pkcs12_client_creds, client_auth_method,
@@ -690,6 +693,7 @@ int main(int argc, const char *argv[])
     int exit_status = EXIT_FAILURE;
     char *out = NULL;
     char *client_secret_tmp = NULL;
+    bool oci_iam;
 
     ret = parse_cli(argc, argv, &opts);
     if (ret != EOK) {
@@ -719,6 +723,9 @@ int main(int argc, const char *argv[])
         goto done;
     }
     talloc_steal(main_ctx, debug_prg_name);
+
+    oci_iam = opts.idp_type != NULL
+              && strncasecmp(opts.idp_type, "oci_iam:", 8) == 0;
 
     if (opts.oidc_cmd == GET_DEVICE_CODE
                 || IS_ID_CMD(opts.oidc_cmd)) {
@@ -770,7 +777,8 @@ int main(int argc, const char *argv[])
                             opts.pkcs12_client_creds,
                             opts.client_auth_method,
                             opts.pkcs12_client_creds == NULL ? NULL
-                                                             : opts.client_secret);
+                                                             : opts.client_secret,
+                            oci_iam);
         if (dc_ctx == NULL) {
             DEBUG(SSSDBG_OP_FAILURE, "Failed to initialize main context.\n");
             goto done;

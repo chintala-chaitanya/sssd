@@ -71,6 +71,7 @@ struct token_data {
 
 struct devicecode_ctx {
     struct rest_ctx *rest_ctx;
+    bool oci_iam;
     const char *device_authorization_endpoint;
     const char *token_endpoint;
     const char *userinfo_endpoint;
