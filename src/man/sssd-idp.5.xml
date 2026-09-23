@@ -312,6 +312,14 @@ idp_id_scope = urn:opc:idm:__myscopes__
 idp_auth_scope = openid profile
 </programlisting>
         </para>
+        <para>
+            For OCI IAM users whose <literal>userName</literal> is an email
+            address, SSSD uses the portion before the final <literal>@</literal>
+            as the Linux username. The complete OCI IAM userName is retained
+            for identity-provider lookups and authentication. The portions
+            before <literal>@</literal> must therefore be unique within the
+            Identity Domain.
+        </para>
     </refsect1>
 
 	<xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="include/seealso.xml" />

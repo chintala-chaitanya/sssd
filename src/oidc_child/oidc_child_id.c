@@ -210,6 +210,27 @@ static errno_t oci_iam_get_first_id(TALLOC_CTX *mem_ctx, const char *data,
     return *out == NULL ? ENOMEM : EOK;
 }
 
+/* Keep the Linux-facing name free of SSSD's '@domain' separator, like the
+ * Entra ID adapter does for userPrincipalName.  The full OCI userName is
+ * retained separately as idpUserIdentifier for identity-provider lookups. */
+static json_t *oci_iam_posix_username(json_t *user_name)
+{
+    const char *name;
+    const char *separator;
+
+    name = json_string_value(user_name);
+    if (name == NULL) {
+        return NULL;
+    }
+
+    separator = strrchr(name, '@');
+    if (separator == NULL || separator == name) {
+        return json_incref(user_name);
+    }
+
+    return json_stringn(name, separator - name);
+}
+
 static errno_t oci_iam_normalize_resources(TALLOC_CTX *mem_ctx,
                                            enum oidc_cmd oidc_cmd,
                                            const char *data, char **out)
@@ -219,6 +240,7 @@ static errno_t oci_iam_normalize_resources(TALLOC_CTX *mem_ctx,
     json_t *item = NULL;
     json_t *id = NULL;
     json_t *name = NULL;
+    json_t *posix_name = NULL;
     json_t *object = NULL;
     json_error_t json_error;
     const char *name_attr;
@@ -259,18 +281,29 @@ static errno_t oci_iam_normalize_resources(TALLOC_CTX *mem_ctx,
             goto done;
         }
 
+        posix_name = is_user ? oci_iam_posix_username(name)
+                             : json_incref(name);
+        if (posix_name == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+
         object = json_object();
         if (object == NULL
                 || json_object_set(object, "id", id) != 0
-                || json_object_set(object, posix_name_attr, name) != 0
+                || json_object_set(object, posix_name_attr, posix_name) != 0
                 || json_object_set_new(object, "posixObjectType",
                                        json_string(object_type)) != 0
                 || (is_user && json_object_set(object, "idpUserIdentifier",
                                                 name) != 0)) {
+            json_decref(posix_name);
+            posix_name = NULL;
             json_decref(object);
             ret = ENOMEM;
             goto done;
         }
+        json_decref(posix_name);
+        posix_name = NULL;
 
         ret = json_array_append_new(normalized, object);
         object = NULL;
@@ -290,6 +323,7 @@ static errno_t oci_iam_normalize_resources(TALLOC_CTX *mem_ctx,
     free(dump);
     ret = *out == NULL ? ENOMEM : EOK;
 done:
+    json_decref(posix_name);
     json_decref(object);
     json_decref(normalized);
     json_decref(array);
