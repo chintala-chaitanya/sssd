@@ -198,6 +198,11 @@ static errno_t oci_iam_get_first_id(TALLOC_CTX *mem_ctx, const char *data,
         return ENOENT;
     }
 
+    if (json_array_size(array) != 1) {
+        json_decref(array);
+        return EEXIST;
+    }
+
     item = json_array_get(array, 0);
     id = json_object_get(item, "id");
     if (!json_is_string(id)) {
@@ -355,7 +360,12 @@ static errno_t oci_iam_lookup(TALLOC_CTX *mem_ctx, enum oidc_cmd oidc_cmd,
     switch (oidc_cmd) {
     case GET_USER:
     case GET_USER_GROUPS:
-        filter = talloc_asprintf(rest_ctx, "userName eq \"%s\"", input);
+        /* The Linux name of an email-style OCI userName is its local part.
+         * Look up either a non-email userName directly or an email userName
+         * with the same local part. */
+        filter = talloc_asprintf(rest_ctx,
+                                 "userName eq \"%s\" or userName sw \"%s@\"",
+                                 input, input);
         break;
     case GET_GROUP:
     case GET_GROUP_MEMBERS:
