@@ -395,6 +395,38 @@ static bool has_creds_pkcs12(struct cli_opts *opts)
     return (has_creds_client_secret(opts) && opts->pkcs12_client_creds != NULL);
 }
 
+static bool has_https_uri(const char *uri)
+{
+    return uri != NULL && strncasecmp(uri, "https://", strlen("https://")) == 0;
+}
+
+/* OCI IAM credentials and bearer tokens must never be sent to an unencrypted
+ * endpoint. Other providers retain their existing endpoint handling. */
+static bool validate_oci_iam_endpoints(const struct cli_opts *opts)
+{
+    const char *base_url;
+
+    if (opts->idp_type == NULL || strncasecmp(opts->idp_type, "oci_iam:", 8) != 0) {
+        return true;
+    }
+
+    base_url = opts->idp_type + 8;
+    if (!has_https_uri(base_url)
+            || (opts->issuer_url != NULL && !has_https_uri(opts->issuer_url))
+            || (opts->device_auth_endpoint != NULL
+                && !has_https_uri(opts->device_auth_endpoint))
+            || (opts->token_endpoint != NULL && !has_https_uri(opts->token_endpoint))
+            || (opts->userinfo_endpoint != NULL
+                && !has_https_uri(opts->userinfo_endpoint))
+            || (opts->jwks_uri != NULL && !has_https_uri(opts->jwks_uri))) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "OCI IAM endpoints and the SCIM base URL must use HTTPS.\n");
+        return false;
+    }
+
+    return true;
+}
+
 static bool set_client_auth_method(const char *tmp_cam, struct cli_opts *opts)
 {
     if (tmp_cam != NULL) {
@@ -726,6 +758,10 @@ int main(int argc, const char *argv[])
 
     oci_iam = opts.idp_type != NULL
               && strncasecmp(opts.idp_type, "oci_iam:", 8) == 0;
+
+    if (!validate_oci_iam_endpoints(opts)) {
+        goto done;
+    }
 
     if (opts.oidc_cmd == GET_DEVICE_CODE
                 || IS_ID_CMD(opts.oidc_cmd)) {

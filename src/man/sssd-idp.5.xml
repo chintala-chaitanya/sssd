@@ -81,6 +81,8 @@
                              requires the base URI of its Identity Domain SCIM
                              API, for example
                              <quote>oci_iam:https://example.identity.oraclecloud.com</quote>.
+                             OCI IAM requires HTTPS for this base URI and all
+                             configured OAuth/OIDC endpoints.
                         </para>
                         <para>
                             Default: Not set (Required)

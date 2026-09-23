@@ -147,6 +147,31 @@ def test_oidc_child__get_device_code(client: Client, keycloak: Keycloak):
     assert "user_code" in data, "Missing user_code"
 
 
+@pytest.mark.importance("high")
+@pytest.mark.topology(KnownTopology.Keycloak)
+def test_oidc_child__rejects_insecure_oci_iam_endpoints(client: Client, keycloak: Keycloak):
+    """
+    :title: Reject OCI IAM credentials sent to insecure endpoints
+    :steps:
+        1. Request an OCI IAM device code with HTTP endpoints.
+    :expectedresults:
+        1. oidc_child rejects the configuration before making a request.
+    :customerscenario: False
+    """
+
+    result = client.host.conn.run(
+        oidc_child_path
+        + " --logger=stderr -d 3 --get-device-code "
+        + "--idp-type=oci_iam:http://identity.example.test "
+        + "--device-auth-endpoint=http://identity.example.test/oauth2/v1/device "
+        + "--token-endpoint=http://identity.example.test/oauth2/v1/token "
+        + "--client-id=test-client",
+        raise_on_error=False,
+    )
+    assert result.rc != 0
+    assert "must use HTTPS" in result.stderr
+
+
 @pytest.mark.parametrize("key_type", ["RSA", "EC"])
 @pytest.mark.importance("high")
 @pytest.mark.topology(KnownTopology.Keycloak)

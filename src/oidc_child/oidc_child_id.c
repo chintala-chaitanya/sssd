@@ -24,6 +24,8 @@
 
 #include "oidc_child/oidc_child_util.h"
 
+#include <stdint.h>
+
 #include <jansson.h>
 
 #include "util/util.h"
@@ -215,6 +217,46 @@ static errno_t oci_iam_get_first_id(TALLOC_CTX *mem_ctx, const char *data,
     return *out == NULL ? ENOMEM : EOK;
 }
 
+/* Escape a value for a SCIM string literal. URL encoding happens later and
+ * does not protect the SCIM filter grammar itself. OCI user and group names
+ * originate outside SSSD, so quotes and backslashes must be escaped before
+ * they are interpolated into a filter. */
+static errno_t oci_iam_escape_filter_value(TALLOC_CTX *mem_ctx,
+                                           const char *value, char **out)
+{
+    char *escaped;
+    const char *src;
+    char *dst;
+
+    if (value == NULL || out == NULL) {
+        return EINVAL;
+    }
+
+    if (strlen(value) > (SIZE_MAX - 1) / 2) {
+        return EOVERFLOW;
+    }
+
+    escaped = talloc_array(mem_ctx, char, strlen(value) * 2 + 1);
+    if (escaped == NULL) {
+        return ENOMEM;
+    }
+
+    for (src = value, dst = escaped; *src != '\0'; src++) {
+        if ((unsigned char)*src < 0x20) {
+            talloc_free(escaped);
+            return EINVAL;
+        }
+        if (*src == '\\' || *src == '\"') {
+            *dst++ = '\\';
+        }
+        *dst++ = *src;
+    }
+    *dst = '\0';
+
+    *out = escaped;
+    return EOK;
+}
+
 /* Keep the Linux-facing name free of SSSD's '@domain' separator, like the
  * Entra ID adapter does for userPrincipalName.  The full OCI userName is
  * retained separately as idpUserIdentifier for identity-provider lookups. */
@@ -234,6 +276,24 @@ static json_t *oci_iam_posix_username(json_t *user_name)
     }
 
     return json_stringn(name, separator - name);
+}
+
+static bool oci_iam_has_duplicate_posix_name(json_t *objects,
+                                              const char *attribute,
+                                              json_t *name)
+{
+    json_t *object;
+    json_t *existing_name;
+    size_t index;
+
+    json_array_foreach(objects, index, object) {
+        existing_name = json_object_get(object, attribute);
+        if (existing_name != NULL && json_equal(existing_name, name)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 static errno_t oci_iam_normalize_resources(TALLOC_CTX *mem_ctx,
@@ -293,6 +353,16 @@ static errno_t oci_iam_normalize_resources(TALLOC_CTX *mem_ctx,
             goto done;
         }
 
+        if (oci_iam_has_duplicate_posix_name(normalized, posix_name_attr,
+                                             posix_name)) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "OCI IAM objects map to the same POSIX name.\n");
+            json_decref(posix_name);
+            posix_name = NULL;
+            ret = EEXIST;
+            goto done;
+        }
+
         object = json_object();
         if (object == NULL
                 || json_object_set(object, "id", id) != 0
@@ -347,6 +417,7 @@ static errno_t oci_iam_lookup(TALLOC_CTX *mem_ctx, enum oidc_cmd oidc_cmd,
 {
     errno_t ret;
     char *filter = NULL;
+    char *filter_value = NULL;
     char *filter_enc = NULL;
     char *uri = NULL;
     char *resources = NULL;
@@ -357,6 +428,17 @@ static errno_t oci_iam_lookup(TALLOC_CTX *mem_ctx, enum oidc_cmd oidc_cmd,
         return EINVAL;
     }
 
+    if (strncasecmp(base_url, "https://", strlen("https://")) != 0) {
+        DEBUG(SSSDBG_OP_FAILURE,
+              "OCI IAM SCIM base URL must use HTTPS.\n");
+        return EINVAL;
+    }
+
+    ret = oci_iam_escape_filter_value(rest_ctx, input, &filter_value);
+    if (ret != EOK) {
+        return ret;
+    }
+
     switch (oidc_cmd) {
     case GET_USER:
     case GET_USER_GROUPS:
@@ -365,11 +447,12 @@ static errno_t oci_iam_lookup(TALLOC_CTX *mem_ctx, enum oidc_cmd oidc_cmd,
          * with the same local part. */
         filter = talloc_asprintf(rest_ctx,
                                  "userName eq \"%s\" or userName sw \"%s@\"",
-                                 input, input);
+                                 filter_value, filter_value);
         break;
     case GET_GROUP:
     case GET_GROUP_MEMBERS:
-        filter = talloc_asprintf(rest_ctx, "displayName eq \"%s\"", input);
+        filter = talloc_asprintf(rest_ctx, "displayName eq \"%s\"",
+                                 filter_value);
         break;
     default:
         return EINVAL;
@@ -402,15 +485,23 @@ static errno_t oci_iam_lookup(TALLOC_CTX *mem_ctx, enum oidc_cmd oidc_cmd,
     }
 
     if (oidc_cmd == GET_USER_GROUPS) {
+        ret = oci_iam_escape_filter_value(rest_ctx, object_id, &filter_value);
+        if (ret != EOK) {
+            goto done;
+        }
         filter = talloc_asprintf(rest_ctx,
                                  "members[type eq \"User\" and value eq \"%s\"]",
-                                 object_id);
+                                 filter_value);
         filter_enc = url_encode_string(rest_ctx, filter);
         uri = talloc_asprintf(rest_ctx, "%s/admin/v1/Groups?filter=%s",
                               base_url, filter_enc);
     } else {
+        ret = oci_iam_escape_filter_value(rest_ctx, object_id, &filter_value);
+        if (ret != EOK) {
+            goto done;
+        }
         filter = talloc_asprintf(rest_ctx, "groups.value eq \"%s\"",
-                                 object_id);
+                                 filter_value);
         filter_enc = url_encode_string(rest_ctx, filter);
         uri = talloc_asprintf(rest_ctx,
                               "%s/admin/v1/Users?attributes=userName&filter=%s&sortBy=id",
