@@ -759,7 +759,7 @@ int main(int argc, const char *argv[])
     oci_iam = opts.idp_type != NULL
               && strncasecmp(opts.idp_type, "oci_iam:", 8) == 0;
 
-    if (!validate_oci_iam_endpoints(opts)) {
+    if (!validate_oci_iam_endpoints(&opts)) {
         goto done;
     }
 
