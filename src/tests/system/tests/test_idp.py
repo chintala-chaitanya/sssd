@@ -102,6 +102,45 @@ def test_idp__user_groups(client: Client, keycloak: Keycloak, use_fully_qualifie
 @pytest.mark.parametrize("use_fully_qualified_names", ["true", "false"])
 @pytest.mark.topology(KnownTopology.Keycloak)
 @pytest.mark.builtwith(client="idp-provider")
+def test_idp__removed_user_group_membership(
+    client: Client, keycloak: Keycloak, use_fully_qualified_names: str
+):
+    """
+    :title: Remove a cached IdP group membership
+    :setup:
+        1. Create a user that is a member of a group.
+    :steps:
+        1. Resolve the user's groups through SSSD.
+        2. Remove the membership at the IdP and expire the SSSD cache.
+        3. Resolve the user's groups again.
+    :expectedresults:
+        1. The removed group is no longer returned by SSSD.
+    :customerscenario: False
+    """
+
+    user = keycloak.user("user1").add(password="Secret123")
+    group = keycloak.group("group1").add().add_member(user)
+
+    client.sssd.dom("test")["use_fully_qualified_names"] = use_fully_qualified_names
+    domain = f"@{client.sssd.default_domain}" if use_fully_qualified_names == "true" else ""
+
+    client.sssd.start(check_config=False)
+
+    before = client.tools.id(user.name + domain)
+    assert before is not None
+    assert before.memberof(group.name + domain)
+
+    group.remove_member(user)
+    client.sssctl.cache_expire(everything=True)
+
+    after = client.tools.id(user.name + domain)
+    assert after is not None
+    assert not after.memberof(group.name + domain)
+
+
+@pytest.mark.parametrize("use_fully_qualified_names", ["true", "false"])
+@pytest.mark.topology(KnownTopology.Keycloak)
+@pytest.mark.builtwith(client="idp-provider")
 def test_idp__group_members(client: Client, keycloak: Keycloak, use_fully_qualified_names: str):
     """
     :title: Authenticate with default settings

@@ -257,6 +257,62 @@ static errno_t del_group(struct idp_id_ctx *idp_id_ctx, const char *group_name)
     return sysdb_delete_group(idp_id_ctx->be_ctx->domain, group_name, 0);
 }
 
+/* The result of a groups-by-user lookup is authoritative. Remove the cached
+ * supplementary memberships before storing its replacement set; otherwise a
+ * group removed at the identity provider remains in the sysdb indefinitely.
+ */
+static errno_t remove_cached_user_group_memberships(
+                                            struct idp_id_ctx *idp_id_ctx,
+                                            const char *user_name)
+{
+    TALLOC_CTX *tmp_ctx;
+    struct ldb_result *res = NULL;
+    struct sss_domain_info *dom;
+    const char *group_name;
+    size_t index;
+    errno_t ret;
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        return ENOMEM;
+    }
+
+    dom = idp_id_ctx->be_ctx->domain;
+    ret = sysdb_initgroups(tmp_ctx, dom, user_name, &res);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE,
+              "Failed to read cached groups for user [%s].\n", user_name);
+        goto done;
+    }
+
+    /* sysdb_initgroups returns the user first and then supplementary groups. */
+    for (index = 1; index < res->count; index++) {
+        group_name = ldb_msg_find_attr_as_string(res->msgs[index],
+                                                 SYSDB_NAME, NULL);
+        if (group_name == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "Cached group has no name while refreshing [%s].\n",
+                  user_name);
+            ret = EIO;
+            goto done;
+        }
+
+        ret = sysdb_remove_group_member(dom, group_name, user_name,
+                                        SYSDB_MEMBER_USER, false);
+        if (ret != EOK && ret != ENOENT) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "Failed to remove cached membership of user [%s] from group [%s].\n",
+                  user_name, group_name);
+            goto done;
+        }
+    }
+
+    ret = EOK;
+done:
+    talloc_free(tmp_ctx);
+    return ret;
+}
+
 typedef errno_t (store_func_t)(struct idp_id_ctx *idp_id_ctx, json_t *obj,
                                const char *name);
 
@@ -344,6 +400,29 @@ errno_t eval_group_buf(struct idp_id_ctx *idp_id_ctx,
                        bool noexist_delete,
                        uint8_t *buf, ssize_t buflen)
 {
+    json_t *data = NULL;
+    json_error_t json_error;
+    errno_t ret;
+
+    /* A user_name is provided only for an initgroups (groups-by-user)
+     * response. Validate the complete reply before replacing cached state. */
+    if (user_name != NULL) {
+        data = json_loadb((const char *) buf, buflen, 0, &json_error);
+        if (data == NULL || !json_is_array(data)) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "Failed to parse group data while refreshing user [%s].\n",
+                  user_name);
+            json_decref(data);
+            return EINVAL;
+        }
+        json_decref(data);
+
+        ret = remove_cached_user_group_memberships(idp_id_ctx, user_name);
+        if (ret != EOK) {
+            return ret;
+        }
+    }
+
     return eval_obj_buf(idp_id_ctx, "group", store_json_group, del_group,
                         user_name, del_name, noexist_delete, buf, buflen);
 }
