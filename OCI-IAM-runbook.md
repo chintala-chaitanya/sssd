@@ -1,8 +1,10 @@
 # OCI IAM Device Code login on Oracle Linux 10
 
-This runbook builds the `oci-iam-idp` SSSD branch and configures an Oracle
-Linux 10 host to obtain OCI IAM users/groups through SCIM and authenticate SSH
-users with OAuth 2.0 Device Code.
+This runbook configures an Oracle Linux 10 host to obtain OCI IAM users/groups
+through SCIM and authenticate SSH users with OAuth 2.0 Device Code. It offers
+two mutually exclusive ways to install the custom SSSD RPMs: build them from
+the `oci-iam-idp` Git branch, or install them from the published Object Storage
+DNF repository.
 
 Never put the OCI client secret in Git, shell history, chat, or a ticket.
 
@@ -37,7 +39,18 @@ device:    https://<DOMAIN>.identity.oraclecloud.com/oauth2/v1/device
 
 Use a consistent endpoint family for every value.
 
-## Build the custom RPMs
+## Choose an RPM installation path
+
+Choose **one** of these paths before continuing to [Configure SSSD](#configure-sssd):
+
+| Path | Use it when | What the host does |
+| --- | --- | --- |
+| **A. Build locally from Git** | Developing the adapter or producing a new RPM release | Clones the branch, installs build dependencies, compiles, and installs local RPMs |
+| **B. Install from Object Storage repository** | Normal test, staging, or user host installation | Adds the public DNF repository and installs the published RPMs |
+
+Do not build on every target host once a tested RPM release is available.
+
+## Path A: Build the custom RPMs locally
 
 Enable the Oracle Linux developer repository first:
 
@@ -92,7 +105,7 @@ unexpanded `@PACKAGE_NAME@` tokens. `contrib/sssd.spec` appears only after
 `./configure`. If `autoreconf` cannot find `autopoint`, install
 `gettext-devel`.
 
-## Install the complete RPM family
+## Path A: Install the locally built RPM family
 
 The build produces both `x86_64` and `noarch` RPMs. On a new host do not
 install only `sssd-idp`: `pam_sss.so` belongs to `sssd-client`, and
@@ -115,6 +128,51 @@ rpm -ql sssd-idp | grep '/oidc_child$'
 ```
 
 All installed SSSD packages should show the same custom version.
+
+## Path B: Install from the published Object Storage repository
+
+Use this path instead of Path A on a host that should consume the published
+release. The repository is public and currently contains the tested release at:
+
+```text
+https://objectstorage.us-ashburn-1.oraclecloud.com/n/id3kvohtwgjy/b/sssd-oci-iam-rpms/o/sssd/2.14.0-oci.1/
+```
+
+Create the DNF repository definition:
+
+```bash
+sudoedit /etc/yum.repos.d/sssd-oci-iam.repo
+```
+
+```ini
+[sssd-oci-iam]
+name=Custom SSSD OCI IAM 2.14.0
+baseurl=https://objectstorage.us-ashburn-1.oraclecloud.com/n/id3kvohtwgjy/b/sssd-oci-iam-rpms/o/sssd/2.14.0-oci.1/
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+metadata_expire=300
+```
+
+Validate that DNF can read the repository, then install the complete matching
+SSSD family:
+
+```bash
+sudo dnf clean all
+sudo dnf repolist
+sudo dnf repoquery --available sssd sssd-idp sssd-client sssd-tools
+
+sudo dnf install -y --allowerasing sssd sssd-idp sssd-tools
+
+rpm -q sssd sssd-idp sssd-client sssd-common sssd-tools
+rpm -qf /usr/lib64/security/pam_sss.so
+rpm -ql sssd-idp | grep '/oidc_child$'
+```
+
+`gpgcheck=0` is appropriate only while validating this unsigned public
+repository. Before directing broad users to it, sign the RPMs, publish the GPG
+public key, set `gpgcheck=1`, and add `gpgkey=<PUBLIC_GPG_KEY_URL>` to the
+repository definition.
 
 ## Configure SSSD
 
