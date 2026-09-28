@@ -50,7 +50,7 @@ Choose **one** of these paths before continuing to [Configure SSSD](#configure-s
 
 Do not build on every target host once a tested RPM release is available.
 
-## Path A: Build the custom RPMs locally
+## Path A: Build and install the custom RPMs locally
 
 Enable the Oracle Linux developer repository first:
 
@@ -105,7 +105,7 @@ unexpanded `@PACKAGE_NAME@` tokens. `contrib/sssd.spec` appears only after
 `./configure`. If `autoreconf` cannot find `autopoint`, install
 `gettext-devel`.
 
-## Path A: Install the locally built RPM family
+### Install the locally built RPM family
 
 The build produces both `x86_64` and `noarch` RPMs. On a new host do not
 install only `sssd-idp`: `pam_sss.so` belongs to `sssd-client`, and
@@ -168,11 +168,6 @@ rpm -q sssd sssd-idp sssd-client sssd-common sssd-tools
 rpm -qf /usr/lib64/security/pam_sss.so
 rpm -ql sssd-idp | grep '/oidc_child$'
 ```
-
-`gpgcheck=0` is appropriate only while validating this unsigned public
-repository. Before directing broad users to it, sign the RPMs, publish the GPG
-public key, set `gpgcheck=1`, and add `gpgkey=<PUBLIC_GPG_KEY_URL>` to the
-repository definition.
 
 ## Configure SSSD
 
