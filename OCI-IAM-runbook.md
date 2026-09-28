@@ -1,0 +1,329 @@
+# OCI IAM Device Code login on Oracle Linux 10
+
+This runbook builds the `oci-iam-idp` SSSD branch and configures an Oracle
+Linux 10 host to obtain OCI IAM users/groups through SCIM and authenticate SSH
+users with OAuth 2.0 Device Code.
+
+Never put the OCI client secret in Git, shell history, chat, or a ticket.
+
+## Design
+
+SSSD has two separate OCI flows:
+
+| Requirement | SSSD flow | OCI IAM interface |
+| --- | --- | --- |
+| Users, groups, memberships | ID provider lookup | Client Credentials grant and SCIM |
+| Interactive SSH login | PAM authentication | Device Authorization grant and OIDC userinfo |
+
+`access_provider = simple` plus `simple_allow_groups` is authorization. It
+limits which OCI IAM users may log in; it does not authenticate them.
+
+## OCI IAM prerequisites
+
+Create a confidential OCI IAM application with:
+
+1. Client ID and Client Secret.
+2. Client Credentials access for OCI SCIM identity/group lookups.
+3. Device Authorization enabled for browser authentication.
+4. An access-control group, for example `OL10_SSH_Users`.
+
+For `https://<DOMAIN>.identity.oraclecloud.com`, use:
+
+```text
+token:     https://<DOMAIN>.identity.oraclecloud.com/oauth2/v1/token
+userinfo:  https://<DOMAIN>.identity.oraclecloud.com/oauth2/v1/userinfo
+device:    https://<DOMAIN>.identity.oraclecloud.com/oauth2/v1/device
+```
+
+Use a consistent endpoint family for every value.
+
+## Build the custom RPMs
+
+Enable the Oracle Linux developer repository first:
+
+```bash
+sudo dnf config-manager --enable ol10_codeready_builder
+sudo dnf makecache
+```
+
+Install the build dependencies. `gpgverify` is deliberately not included: it
+is unavailable on OL10 and not needed for this EL10 build.
+
+```bash
+sudo dnf install -y \
+  git gcc make m4 autoconf automake libtool rpm-build rpmdevtools createrepo_c \
+  bind-utils bc findutils c-ares-devel check-devel cifs-utils-devel dbus-devel \
+  docbook-style-xsl doxygen gettext-devel po4a gdm-pam-extensions-devel \
+  jansson-devel libcap-devel libcurl-devel libjose-devel keyutils-libs-devel \
+  krb5-devel krb5-libs libcmocka-devel libdhash-devel libfido2-devel \
+  libini_config-devel libldb-devel libnfsidmap-devel libnl3-devel \
+  libselinux-devel libsemanage-devel libsmbclient-devel libtalloc-devel \
+  libtdb-devel libtevent-devel libunistring libunistring-devel libuuid-devel \
+  libxml2 libxslt nss_wrapper openldap-devel openssl openssl-devel p11-kit-devel \
+  pam-devel pam_wrapper pcre2-devel popt-devel python3-devel python3-setuptools \
+  samba-devel samba-winbind selinux-policy-targeted shadow-utils-subid-devel \
+  softhsm systemd-devel systemd-rpm-macros systemtap-sdt-devel \
+  systemtap-sdt-dtrace uid_wrapper valgrind-devel gnutls-utils openssh
+```
+
+Clone through HTTPS unless the server has a GitHub SSH key:
+
+```bash
+git clone --branch oci-iam-idp https://github.com/chintala-chaitanya/sssd.git \
+  "$HOME/sssd-oci-iam"
+cd "$HOME/sssd-oci-iam"
+git log -1 --oneline
+```
+
+Bootstrap, generate the real RPM spec, and build:
+
+```bash
+autoreconf -ivf > "$HOME/sssd-autoreconf.log" 2>&1
+./configure > "$HOME/sssd-configure.log" 2>&1
+ls -l Makefile config.status contrib/sssd.spec
+
+sudo dnf builddep -y --spec contrib/sssd.spec
+make -j2 rpms > "$HOME/sssd-rpmbuild.log" 2>&1
+tail -n 40 "$HOME/sssd-rpmbuild.log"
+```
+
+Do not use `contrib/sssd.spec.in` with `dnf builddep`: it is a template with
+unexpanded `@PACKAGE_NAME@` tokens. `contrib/sssd.spec` appears only after
+`./configure`. If `autoreconf` cannot find `autopoint`, install
+`gettext-devel`.
+
+## Install the complete RPM family
+
+The build produces both `x86_64` and `noarch` RPMs. On a new host do not
+install only `sssd-idp`: `pam_sss.so` belongs to `sssd-client`, and
+`sssd-tools` needs the noarch `python3-sssdconfig` package.
+
+```bash
+createrepo_c --update "$HOME/sssd-oci-iam/rpmbuild/RPMS/x86_64"
+createrepo_c --update "$HOME/sssd-oci-iam/rpmbuild/RPMS/noarch"
+
+sudo dnf install -y --allowerasing \
+  --repofrompath=sssd-local-x86_64,"file://$HOME/sssd-oci-iam/rpmbuild/RPMS/x86_64" \
+  --repofrompath=sssd-local-noarch,"file://$HOME/sssd-oci-iam/rpmbuild/RPMS/noarch" \
+  --setopt=sssd-local-x86_64.gpgcheck=0 \
+  --setopt=sssd-local-noarch.gpgcheck=0 \
+  sssd sssd-idp sssd-tools
+
+rpm -q sssd sssd-idp sssd-client sssd-common sssd-tools
+rpm -qf /usr/lib64/security/pam_sss.so
+rpm -ql sssd-idp | grep '/oidc_child$'
+```
+
+All installed SSSD packages should show the same custom version.
+
+## Configure SSSD
+
+Create `/etc/sssd/sssd.conf` and replace all placeholders:
+
+```ini
+[sssd]
+services = nss, pam
+domains = oci_iam
+
+[domain/oci_iam]
+id_provider = idp
+access_provider = simple
+simple_allow_groups = OL10_SSH_Users
+
+idp_type = oci_iam:https://<DOMAIN>.identity.oraclecloud.com
+idp_client_id = <CLIENT_ID>
+idp_client_secret = <CLIENT_SECRET>
+idp_token_endpoint = https://<DOMAIN>.identity.oraclecloud.com/oauth2/v1/token
+idp_userinfo_endpoint = https://<DOMAIN>.identity.oraclecloud.com/oauth2/v1/userinfo
+idp_device_auth_endpoint = https://<DOMAIN>.identity.oraclecloud.com/oauth2/v1/device
+
+# Identity/group lookup with Client Credentials
+idp_id_scope = urn:opc:idm:__myscopes__
+
+# Interactive Device Code authentication
+idp_auth_scope = openid profile
+
+# Initial cache policy; tune to the required revocation speed and availability.
+entry_cache_user_timeout = 300
+entry_cache_group_timeout = 300
+
+[nss]
+default_shell = /bin/bash
+fallback_homedir = /home/%f
+memcache_timeout = 60
+entry_cache_nowait_percentage = 0
+
+[prompting/oauth2/sshd]
+interactive = true
+interactive_prompt = Complete OCI IAM authentication in the browser, then press ENTER.
+```
+
+Protect the secret:
+
+```bash
+sudo chown root:sssd /etc/sssd/sssd.conf
+sudo chmod 0640 /etc/sssd/sssd.conf
+sudo stat -c '%a %U:%G %n' /etc/sssd/sssd.conf
+```
+
+Expected mode/ownership is `640 root:sssd`.
+
+## Authselect and PAM
+
+Never edit generated `/etc/pam.d/system-auth` or `password-auth` directly.
+Create or reuse a custom authselect profile:
+
+```bash
+sudo authselect current
+sudo authselect create-profile oci-iam -b sssd
+sudo authselect select custom/oci-iam
+sudo cp -a /etc/authselect/custom/oci-iam \
+  /etc/authselect/custom/oci-iam.before-oci-idp-pam-order
+```
+
+If the host already has an organization custom profile, copy and modify that
+profile rather than selecting a new base profile.
+
+Edit both custom-template files:
+
+```bash
+sudoedit /etc/authselect/custom/oci-iam/system-auth
+sudoedit /etc/authselect/custom/oci-iam/password-auth
+```
+
+In the `auth` section, move the plain line below immediately after
+`pam_faillock.so preauth` and before the `pam_usertype.so` / `pam_localuser.so`
+conditional lines:
+
+```pam
+auth    sufficient    pam_sss.so
+```
+
+Keep it plain: do not add `forward_pass` or `use_first_pass`. Do not move the
+separate smartcard-specific `pam_sss.so try_cert_auth` line. If
+`authselect current` lists `with-smartcard` or `with-smartcard-required`, have
+the complete stack reviewed before changing its ordering.
+
+This ordering is required because Device Code needs `pam_sss` to request SSSD
+pre-authentication before the normal password path is reached.
+
+```bash
+sudo authselect apply-changes
+sudo grep -nE 'pam_(sss|unix)\\.so' /etc/pam.d/system-auth /etc/pam.d/password-auth
+```
+
+## First-login home directories
+
+Home-directory creation is not required to authenticate, but without it a
+successful user login may start in `/` with a missing-home warning.
+
+```bash
+sudo dnf install -y oddjob oddjob-mkhomedir
+sudo systemctl enable --now oddjobd.service
+sudo authselect enable-feature with-mkhomedir
+sudo authselect apply-changes
+```
+
+## SSH configuration
+
+Create `/etc/ssh/sshd_config.d/40-oci-iam-device-code.conf`:
+
+```text
+UsePAM yes
+KbdInteractiveAuthentication yes
+```
+
+Validate and reload:
+
+```bash
+sudo sshd -t
+sudo sshd -T | grep -E 'usepam|kbdinteractiveauthentication|pubkeyauthentication|passwordauthentication'
+sudo systemctl reload sshd
+```
+
+Do not disable public-key authentication. Existing local users such as `opc`
+can continue using cloud-init `authorized_keys`; OCI IAM Device Code is a
+separate keyboard-interactive/PAM method. `PasswordAuthentication no` is
+compatible with Device Code.
+
+## Validate
+
+```bash
+sudo systemctl enable --now sssd
+sudo sss_cache -E
+
+LOGIN_USER='example.user@oci_iam'
+getent passwd "$LOGIN_USER"
+id "$LOGIN_USER"
+getent initgroups "$LOGIN_USER"
+getent group OL10_SSH_Users
+
+sudo sssctl user-checks --action auth --service sshd "$LOGIN_USER"
+```
+
+The final command must show a Device Code URL and PIN. From another machine:
+
+```bash
+ssh -l "$LOGIN_USER" <LINUX_HOST>
+```
+
+Keep an existing administrator session open while testing. Validate both an
+allowed OCI user and a user removed from `OL10_SSH_Users`.
+
+`getent passwd` refers to the Unix account database, not passwords. NSS routes
+the lookup to SSSD through `/etc/nsswitch.conf`; SSSD serves cache data or
+retrieves current OCI IAM data as necessary.
+
+## Cache and operations
+
+The upstream default `entry_cache_timeout` is 5400 seconds (90 minutes).
+The five-minute values above are an initial privileged-access policy; choose
+values appropriate for required revocation speed, availability, and OCI load.
+Do not use `sss_cache -E` as a normal operations process. It is useful for
+validation and emergency troubleshooting.
+
+The adapter generates deterministic POSIX UID/GID mappings from immutable OCI
+SCIM identifiers and SSSD idmap inputs. Use the same endpoint and idmap policy
+on every host for consistent IDs. An OCI user recreated with a new SCIM ID is a
+new Linux identity even if it has the same name.
+
+After group membership removal, refresh during testing:
+
+```bash
+sudo systemctl restart sssd
+sudo sss_cache -E
+id 'removed.user@oci_iam'
+getent group OL10_SSH_Users
+```
+
+The custom branch includes a fix that removes stale cached supplementary group
+memberships when OCI returns an authoritative empty membership result.
+
+## Troubleshooting
+
+| Symptom | Resolution |
+| --- | --- |
+| `autoreconf` cannot find `autopoint` | Install `gettext-devel`. |
+| RPM cannot parse `sssd.spec.in` | Run `autoreconf` and `./configure`, then use generated `contrib/sssd.spec`. |
+| `sssd-tools` has an unresolved `python3-sssdconfig` dependency | Create/use both `x86_64` and `noarch` local repositories. |
+| `sssctl user-checks` shows `Password:` | Verify the Device Code endpoints/scopes and the authselect ordering of plain `pam_sss.so`. |
+| SSH shows an ordinary password prompt | Confirm `UsePAM yes`, `KbdInteractiveAuthentication yes`, and the generated PAM stack. |
+| User can log in after group removal | Account/group data is cached; validate OCI membership, then refresh cache for the test and review cache lifetimes. |
+| Repeated Device Code prompts for a denied user | Expected SSH keyboard-interactive retry behavior; it is not a successful login. |
+
+Remove temporary debug settings, diagnostic PAM services, and their matching
+`[prompting/oauth2/<test-service>]` configuration after troubleshooting.
+Rotate any client secret that was exposed through terminal capture, chat,
+screen share, or shell history.
+
+## Fleet rollout
+
+Build and test one fixed commit, then publish the complete signed RPM set from
+both `rpmbuild/RPMS/x86_64` and `rpmbuild/RPMS/noarch` to an internal DNF/YUM
+repository. Distribute the repository definition, matching SSSD RPM family,
+secret-managed `sssd.conf`, custom authselect profile, SSH drop-in, and
+home-directory policy through the approved configuration-management process.
+
+The RPMs contain SSSD code. The SSSD configuration, authselect profile, SSH
+configuration, access group, cache policy, and client-secret handling are
+host configuration and must be deployed separately.
