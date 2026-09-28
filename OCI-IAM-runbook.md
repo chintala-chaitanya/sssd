@@ -191,18 +191,33 @@ sudoedit /etc/authselect/custom/oci-iam/system-auth
 sudoedit /etc/authselect/custom/oci-iam/password-auth
 ```
 
-In the `auth` section, move the plain line below immediately after
-`pam_faillock.so preauth` and before the `pam_usertype.so` / `pam_localuser.so`
-conditional lines:
+In the `auth` section, make these two changes in **each** template:
 
-```pam
-auth    sufficient    pam_sss.so
-```
+1. Locate the ordinary `pam_sss.so` line. If it contains `forward_pass`, remove
+   that option:
 
-Keep it plain: do not add `forward_pass` or `use_first_pass`. Do not move the
-separate smartcard-specific `pam_sss.so try_cert_auth` line. If
-`authselect current` lists `with-smartcard` or `with-smartcard-required`, have
-the complete stack reviewed before changing its ordering.
+   ```pam
+   # Before
+   auth    sufficient    pam_sss.so forward_pass
+
+   # After
+   auth    sufficient    pam_sss.so
+   ```
+
+2. Move that plain line so it is immediately below the
+   `pam_faillock.so preauth` line. Remove the original copy, so the plain
+   `pam_sss.so` line occurs only once in the `auth` section.
+
+   ```pam
+   auth    required      pam_env.so
+   auth    required      pam_faildelay.so delay=2000000
+   auth    required      pam_faillock.so preauth silent
+   auth    sufficient    pam_sss.so
+   ```
+
+   Leave all following lines in their existing order. In particular, do not
+   use `pam_usertype.so` or `pam_localuser.so` as the insertion point; the
+   required placement is directly after `pam_faillock.so preauth`.
 
 This ordering is required because Device Code needs `pam_sss` to request SSSD
 pre-authentication before the normal password path is reached.
@@ -299,22 +314,10 @@ getent group OL10_SSH_Users
 The custom branch includes a fix that removes stale cached supplementary group
 memberships when OCI returns an authoritative empty membership result.
 
-## Troubleshooting
-
-| Symptom | Resolution |
-| --- | --- |
-| `autoreconf` cannot find `autopoint` | Install `gettext-devel`. |
-| RPM cannot parse `sssd.spec.in` | Run `autoreconf` and `./configure`, then use generated `contrib/sssd.spec`. |
-| `sssd-tools` has an unresolved `python3-sssdconfig` dependency | Create/use both `x86_64` and `noarch` local repositories. |
-| `sssctl user-checks` shows `Password:` | Verify the Device Code endpoints/scopes and the authselect ordering of plain `pam_sss.so`. |
-| SSH shows an ordinary password prompt | Confirm `UsePAM yes`, `KbdInteractiveAuthentication yes`, and the generated PAM stack. |
-| User can log in after group removal | Account/group data is cached; validate OCI membership, then refresh cache for the test and review cache lifetimes. |
-| Repeated Device Code prompts for a denied user | Expected SSH keyboard-interactive retry behavior; it is not a successful login. |
-
-Remove temporary debug settings, diagnostic PAM services, and their matching
-`[prompting/oauth2/<test-service>]` configuration after troubleshooting.
-Rotate any client secret that was exposed through terminal capture, chat,
-screen share, or shell history.
+After validation, remove any temporary debug settings, diagnostic PAM service,
+and matching `[prompting/oauth2/<test-service>]` configuration. Rotate a client
+secret if it was exposed through terminal capture, chat, screen share, or shell
+history.
 
 ## Fleet rollout
 
