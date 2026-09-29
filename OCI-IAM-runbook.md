@@ -59,8 +59,7 @@ sudo dnf config-manager --enable ol10_codeready_builder
 sudo dnf makecache
 ```
 
-Install the build dependencies. `gpgverify` is deliberately not included: it
-is unavailable on OL10 and not needed for this EL10 build.
+Install the build dependencies:
 
 ```bash
 sudo dnf install -y \
@@ -85,7 +84,6 @@ Clone through HTTPS unless the server has a GitHub SSH key:
 git clone --branch oci-iam-idp https://github.com/chintala-chaitanya/sssd.git \
   "$HOME/sssd-oci-iam"
 cd "$HOME/sssd-oci-iam"
-git log -1 --oneline
 ```
 
 Bootstrap, generate the real RPM spec, and build:
@@ -288,10 +286,6 @@ pam_usertype.so
 pam_localuser.so
 pam_unix.so
 ```
-
-If the authselect `with-faillock` feature is enabled, the generated
-`pam_faillock.so preauth` line appears immediately before `pam_sss.so`. If the
-feature is not enabled, it is correctly absent from the generated files.
 
 The `pam_sss.so` authentication line must not contain `forward_pass`. You will
 also see later `pam_unix.so` and `pam_sss.so` entries for the `account`,
