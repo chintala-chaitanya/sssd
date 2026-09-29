@@ -275,8 +275,24 @@ pre-authentication before the normal password path is reached.
 
 ```bash
 sudo authselect apply-changes
-sudo grep -nE 'pam_(sss|unix)\\.so' /etc/pam.d/system-auth /etc/pam.d/password-auth
+sudo grep -nE 'pam_(faillock|sss|usertype|localuser|unix)[.]so' \
+  /etc/pam.d/system-auth \
+  /etc/pam.d/password-auth
 ```
+
+In the `auth` portion of both generated files, confirm this order:
+
+```text
+pam_faillock.so preauth
+pam_sss.so
+pam_usertype.so
+pam_localuser.so
+pam_unix.so
+```
+
+The `pam_sss.so` authentication line must not contain `forward_pass`. You will
+also see later `pam_unix.so` and `pam_sss.so` entries for the `account`,
+`password`, and `session` portions; those are expected and must not be moved.
 
 ## First-login home directories
 
