@@ -230,8 +230,6 @@ Create or reuse a custom authselect profile:
 sudo authselect current
 sudo authselect create-profile oci-iam -b sssd
 sudo authselect select custom/oci-iam
-sudo cp -a /etc/authselect/custom/oci-iam \
-  /etc/authselect/custom/oci-iam.before-oci-idp-pam-order
 ```
 
 If the host already has an organization custom profile, copy and modify that
