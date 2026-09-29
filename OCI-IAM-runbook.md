@@ -283,12 +283,15 @@ sudo grep -nE 'pam_(faillock|sss|usertype|localuser|unix)[.]so' \
 In the `auth` portion of both generated files, confirm this order:
 
 ```text
-pam_faillock.so preauth
 pam_sss.so
 pam_usertype.so
 pam_localuser.so
 pam_unix.so
 ```
+
+If the authselect `with-faillock` feature is enabled, the generated
+`pam_faillock.so preauth` line appears immediately before `pam_sss.so`. If the
+feature is not enabled, it is correctly absent from the generated files.
 
 The `pam_sss.so` authentication line must not contain `forward_pass`. You will
 also see later `pam_unix.so` and `pam_sss.so` entries for the `account`,
