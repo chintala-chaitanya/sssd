@@ -346,11 +346,19 @@ getent group OL10_SSH_Users
 sudo sssctl user-checks --action auth --service sshd "$LOGIN_USER"
 ```
 
-The final command must show a Device Code URL and PIN. From another machine:
+The final command must show a Device Code URL and PIN. From another machine,
+use the Linux login name followed by the SSSD domain:
 
 ```bash
-ssh -l "$LOGIN_USER" <LINUX_HOST>
+ssh -l "username@oci_iam" <LINUX_HOST>
 ```
+
+For an OCI IAM username that is an email address, strip the email domain for
+the Linux login. For example, use `chaitanya.c.chintala@oci_iam` for SSH when
+the OCI IAM username is `chaitanya.c.chintala@oracle.com`; do **not** use
+`chaitanya.c.chintala@oracle.com@oci_iam`. When completing the Device Code
+flow in the browser, sign in as the full OCI IAM user
+`chaitanya.c.chintala@oracle.com`.
 
 Keep an existing administrator session open while testing. Validate both an
 allowed OCI user and a user removed from `OL10_SSH_Users`.
