@@ -27,13 +27,32 @@ idp_type = oci_iam:https://<IDENTITY-DOMAIN>.identity.oraclecloud.com
 - Handles OCI responses that omit the optional Device Code polling interval by
   using the RFC 8628 default of five seconds.
 - Maps OCI SCIM object IDs deterministically to SSSD-generated UID/GID values.
-- Maps OCI email-style `userName` values to a Linux-safe short username. For
+- Maps OCI email-style `userName` values to a Linux-facing short username. For
   example, `alice@example.com` is exposed as `alice`; the complete OCI
   `userName` is retained internally for OIDC authentication matching.
 - Rejects ambiguous OCI responses where multiple identities map to the same
   Linux username.
 - Refreshes cached supplementary group memberships authoritatively, so removed
   IdP group membership does not continue to grant access from cache.
+
+## File-change rationale
+
+| File | Why it changed |
+| --- | --- |
+| `src/oidc_child/oidc_child_id.c` | Primary OCI IAM adapter: OCI SCIM requests, pagination, filter escaping, object normalization, email-name mapping, and provider dispatch. |
+| `src/oidc_child/oidc_child.c` | Recognizes OCI IAM configuration and rejects insecure OCI endpoint URLs. |
+| `src/oidc_child/oidc_child_curl.c` | Uses OCI IAM's Device Authorization request format. |
+| `src/oidc_child/oidc_child_util.h` | Carries OCI-provider context through the shared Device Code flow. |
+| `src/oidc_child/oidc_child_json.c` | Uses RFC 8628's five-second fallback when a Device Code response omits `interval`. |
+| `src/db/sysdb.h` | Defines the cached full IdP user identifier attribute. |
+| `src/providers/idp/idp_id_eval.c` | Stores OCI's full `userName` for authentication matching and removes stale cached supplementary memberships on refresh. |
+| `src/providers/idp/idp_auth.c` | Selects the OIDC `sub` claim as OCI IAM's authenticated-user identifier. |
+| `src/providers/idp/idp_auth_eval.c` | Validates the OIDC `sub` claim against the cached full OCI identifier rather than the SCIM object ID. |
+| `src/man/sssd-idp.5.xml` | Documents OCI IAM configuration, HTTPS requirements, and Linux username mapping. |
+| `src/tests/system/tests/test_oidc_child.py` | Adds regression coverage for HTTPS-only OCI endpoints. |
+| `src/tests/system/tests/test_idp.py` | Adds regression coverage for removal of stale IdP group memberships. |
+| `src/tests/system/tests/test_oidc_child_oci_iam.py` | New OCI IAM contract tests for SCIM lookups and Device Code behavior. |
+| `OCI-IAM-runbook.md` | New operational guide for building, deploying, configuring, and testing on OL10. |
 
 ## Security and compatibility
 
@@ -74,6 +93,8 @@ Domain for:
   enabled only when dedicated CI environment variables are supplied.
 - `OCI-IAM-runbook.md`: OL10 build, installation, configuration, and operation
   guide.
+- `OCI-IAM-RELEASE-NOTES.md`: reviewer-oriented summary of the implementation,
+  security considerations, validation, and file-level rationale.
 
 ## Related documentation
 
