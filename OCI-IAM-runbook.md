@@ -305,18 +305,25 @@ sudo authselect apply-changes
 
 ## SSH configuration
 
+Check the currently effective SSH settings before changing them:
+
+```bash
+sudo sshd -T | grep -E '^(usepam|kbdinteractiveauthentication|logingracetime) '
+```
+
 Create `/etc/ssh/sshd_config.d/40-oci-iam-device-code.conf`:
 
 ```text
 UsePAM yes
 KbdInteractiveAuthentication yes
+LoginGraceTime 5m
 ```
 
 Validate and reload:
 
 ```bash
 sudo sshd -t
-sudo sshd -T | grep -E 'usepam|kbdinteractiveauthentication|pubkeyauthentication|passwordauthentication'
+sudo sshd -T | grep -E 'usepam|kbdinteractiveauthentication|logingracetime|pubkeyauthentication|passwordauthentication'
 sudo systemctl reload sshd
 ```
 
@@ -324,6 +331,12 @@ Do not disable public-key authentication. Existing local users such as `opc`
 can continue using cloud-init `authorized_keys`; OCI IAM Device Code is a
 separate keyboard-interactive/PAM method. `PasswordAuthentication no` is
 compatible with Device Code.
+
+`LoginGraceTime 5m` gives the user enough time to open the Device Code URL and
+complete browser sign-in and MFA. If the grace period expires, OpenSSH closes
+the unauthenticated connection and can temporarily penalize repeated attempts
+from the same source IP; those retries may be closed before displaying a new
+Device Code prompt.
 
 ## Validate
 
