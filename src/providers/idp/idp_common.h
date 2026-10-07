@@ -35,6 +35,7 @@
 enum idp_opts {
     IDP_REQ_TIMEOUT = 0,
     IDP_TYPE,
+    IDP_ISSUER_URL,
     IDP_CLIENT_ID,
     IDP_CLIENT_SECRET,
     IDP_TOKEN_ENDPOINT,
@@ -80,6 +81,7 @@ int handle_oidc_child_recv(struct tevent_req *req, TALLOC_CTX *mem_ctx,
 
 errno_t set_oidc_common_args(const char **extra_args, size_t *c,
                              const char *idp_type,
+                             const char *issuer_url,
                              const char *client_id,
                              const char *client_secret,
                              const char *token_endpoint,

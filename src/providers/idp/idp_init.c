@@ -38,6 +38,7 @@ struct idp_init_ctx {
     struct idp_auth_ctx *auth_ctx;
 
     const char *idp_type;
+    const char *issuer_url;
     const char *client_id;
     const char *client_secret;
     const char *token_endpoint;
@@ -112,6 +113,7 @@ errno_t sssm_idp_init(TALLOC_CTX *mem_ctx,
 
     /* idp_type may be NULL */
     init_ctx->idp_type = dp_opt_get_cstring(init_ctx->opts, IDP_TYPE);
+    init_ctx->issuer_url = dp_opt_get_cstring(init_ctx->opts, IDP_ISSUER_URL);
 
     init_ctx->client_id = dp_opt_get_cstring(init_ctx->opts,
                                              IDP_CLIENT_ID);
@@ -133,9 +135,10 @@ errno_t sssm_idp_init(TALLOC_CTX *mem_ctx,
 
     init_ctx->token_endpoint = dp_opt_get_cstring(init_ctx->opts,
                                                   IDP_TOKEN_ENDPOINT);
-    if (init_ctx->token_endpoint == NULL) {
+    if (init_ctx->token_endpoint == NULL && init_ctx->issuer_url == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE,
-              "Missing required option 'idp_token_endpoint'.\n");
+              "Missing required option 'idp_token_endpoint' or "
+              "'idp_issuer_url'.\n");
         ret = EINVAL;
         goto done;
     }
@@ -252,9 +255,13 @@ errno_t sssm_idp_id_init(TALLOC_CTX *mem_ctx,
     id_ctx->idp_options = init_ctx->opts;
 
     id_ctx->idp_type = init_ctx->idp_type;
+    id_ctx->issuer_url = init_ctx->issuer_url;
     id_ctx->client_id = init_ctx->client_id;
     id_ctx->client_secret = init_ctx->client_secret;
-    id_ctx->token_endpoint = init_ctx->token_endpoint;
+    /* Keep a stable id-mapping key when discovery supplies the endpoint. */
+    id_ctx->token_endpoint = init_ctx->token_endpoint != NULL
+                                ? init_ctx->token_endpoint
+                                : init_ctx->issuer_url;
     id_ctx->scope = init_ctx->scope;
 
     err = sss_idmap_init(sss_idmap_talloc, init_ctx, sss_idmap_talloc_free,
@@ -275,7 +282,10 @@ errno_t sssm_idp_id_init(TALLOC_CTX *mem_ctx,
     }
 
     /* TODO: The range_id (2nd parameter) should be configurable */
-    err = sss_idmap_calculate_range(id_ctx->idmap_ctx, id_ctx->token_endpoint,
+    err = sss_idmap_calculate_range(id_ctx->idmap_ctx,
+                                    id_ctx->token_endpoint != NULL
+                                        ? id_ctx->token_endpoint
+                                        : id_ctx->issuer_url,
                                     NULL, &id_range);
     if (err != IDMAP_SUCCESS) {
         DEBUG(SSSDBG_CRIT_FAILURE,
@@ -286,7 +296,9 @@ errno_t sssm_idp_id_init(TALLOC_CTX *mem_ctx,
     }
 
     err = sss_idmap_add_gen_domain_ex(id_ctx->idmap_ctx, be_ctx->domain->name,
-                                      id_ctx->token_endpoint, &id_range,
+                                      id_ctx->token_endpoint != NULL
+                                          ? id_ctx->token_endpoint
+                                          : id_ctx->issuer_url, &id_range,
                                       NULL, NULL, NULL, NULL, 0, false);
     if (err != IDMAP_SUCCESS) {
         DEBUG(SSSDBG_CRIT_FAILURE,
@@ -343,6 +355,7 @@ errno_t sssm_idp_auth_init(TALLOC_CTX *mem_ctx,
     auth_ctx->idp_options = init_ctx->opts;
 
     auth_ctx->idp_type = init_ctx->idp_type;
+    auth_ctx->issuer_url = init_ctx->issuer_url;
     auth_ctx->client_id = init_ctx->client_id;
     auth_ctx->client_secret = init_ctx->client_secret;
     auth_ctx->token_endpoint = init_ctx->token_endpoint;
@@ -377,7 +390,7 @@ errno_t sssm_idp_auth_init(TALLOC_CTX *mem_ctx,
 
     auth_ctx->device_auth_endpoint = dp_opt_get_cstring(init_ctx->opts,
                                                       IDP_DEVICE_AUTH_ENDPOINT);
-    if (auth_ctx->device_auth_endpoint == NULL) {
+    if (auth_ctx->device_auth_endpoint == NULL && auth_ctx->issuer_url == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "Missing required option 'idp_device_code_endpoint'.\n");
         ret = EINVAL;
@@ -386,7 +399,7 @@ errno_t sssm_idp_auth_init(TALLOC_CTX *mem_ctx,
 
     auth_ctx->userinfo_endpoint = dp_opt_get_cstring(init_ctx->opts,
                                                      IDP_USERINFO_ENDPOINT);
-    if (auth_ctx->userinfo_endpoint == NULL) {
+    if (auth_ctx->userinfo_endpoint == NULL && auth_ctx->issuer_url == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "Missing required option 'idp_userinfo_endpoint'.\n");
         ret = EINVAL;

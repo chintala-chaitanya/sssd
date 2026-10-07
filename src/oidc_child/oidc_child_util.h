@@ -150,7 +150,9 @@ const char *rest_ctx_get_pkcs12_client_creds(const struct rest_ctx *rest_ctx);
 const char *rest_ctx_get_key_passwd(const struct rest_ctx *rest_ctx);
 
 /* oidc_child_json.c */
-errno_t parse_openid_configuration(struct devicecode_ctx *dc_ctx);
+errno_t parse_openid_configuration(struct devicecode_ctx *dc_ctx,
+                                   const char *device_auth_endpoint_fallback,
+                                   const char *scope);
 
 errno_t parse_result(struct devicecode_ctx *dc_ctx);
 

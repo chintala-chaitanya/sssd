@@ -36,6 +36,7 @@ struct idp_auth_ctx {
     hash_table_t *open_request_table;
 
     const char *idp_type;
+    const char *issuer_url;
     const char *client_id;
     const char *client_secret;
     const char *token_endpoint;

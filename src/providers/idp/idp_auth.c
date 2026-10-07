@@ -87,6 +87,7 @@ set_oidc_auth_extra_args(TALLOC_CTX *mem_ctx, struct idp_auth_ctx *idp_auth_ctx,
 
     ret = set_oidc_common_args(extra_args, &c,
                                idp_auth_ctx->idp_type,
+                               idp_auth_ctx->issuer_url,
                                idp_auth_ctx->client_id,
                                idp_auth_ctx->client_secret,
                                idp_auth_ctx->token_endpoint,
@@ -96,25 +97,29 @@ set_oidc_auth_extra_args(TALLOC_CTX *mem_ctx, struct idp_auth_ctx *idp_auth_ctx,
         goto done;
     }
 
-    extra_args[c] = talloc_asprintf(extra_args,
-                                    "--device-auth-endpoint=%s",
-                                    idp_auth_ctx->device_auth_endpoint);
-    if (extra_args[c] == NULL) {
-        DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf failed.\n");
-        ret = ENOMEM;
-        goto done;
+    if (idp_auth_ctx->device_auth_endpoint != NULL) {
+        extra_args[c] = talloc_asprintf(extra_args,
+                                        "--device-auth-endpoint=%s",
+                                        idp_auth_ctx->device_auth_endpoint);
+        if (extra_args[c] == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf failed.\n");
+            ret = ENOMEM;
+            goto done;
+        }
+        c++;
     }
-    c++;
 
-    extra_args[c] = talloc_asprintf(extra_args,
-                                    "--userinfo-endpoint=%s",
-                                    idp_auth_ctx->userinfo_endpoint);
-    if (extra_args[c] == NULL) {
-        DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf failed.\n");
-        ret = ENOMEM;
-        goto done;
+    if (idp_auth_ctx->userinfo_endpoint != NULL) {
+        extra_args[c] = talloc_asprintf(extra_args,
+                                        "--userinfo-endpoint=%s",
+                                        idp_auth_ctx->userinfo_endpoint);
+        if (extra_args[c] == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf failed.\n");
+            ret = ENOMEM;
+            goto done;
+        }
+        c++;
     }
-    c++;
 
     provider_behavior = oidc_provider_get_behavior(idp_auth_ctx->idp_type);
     if (provider_behavior == NULL) {

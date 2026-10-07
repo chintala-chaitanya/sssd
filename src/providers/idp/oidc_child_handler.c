@@ -226,6 +226,7 @@ int handle_oidc_child_recv(struct tevent_req *req, TALLOC_CTX *mem_ctx,
 
 errno_t set_oidc_common_args(const char **extra_args, size_t *c,
                              const char *idp_type,
+                             const char *issuer_url,
                              const char *client_id,
                              const char *client_secret,
                              const char *token_endpoint,
@@ -236,6 +237,17 @@ errno_t set_oidc_common_args(const char **extra_args, size_t *c,
     if (idp_type != NULL) {
         extra_args[*c] = talloc_asprintf(extra_args,
                                          "--idp-type=%s", idp_type);
+        if (extra_args[*c] == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf failed.\n");
+            ret = ENOMEM;
+            goto done;
+        }
+        (*c)++;
+    }
+
+    if (issuer_url != NULL) {
+        extra_args[*c] = talloc_asprintf(extra_args,
+                                         "--issuer-url=%s", issuer_url);
         if (extra_args[*c] == NULL) {
             DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf failed.\n");
             ret = ENOMEM;
@@ -264,14 +276,16 @@ errno_t set_oidc_common_args(const char **extra_args, size_t *c,
         (*c)++;
     }
 
-    extra_args[*c] = talloc_asprintf(extra_args,
-                                     "--token-endpoint=%s", token_endpoint);
-    if (extra_args[*c] == NULL) {
-        DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf failed.\n");
-        ret = ENOMEM;
-        goto done;
+    if (token_endpoint != NULL) {
+        extra_args[*c] = talloc_asprintf(extra_args,
+                                         "--token-endpoint=%s", token_endpoint);
+        if (extra_args[*c] == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf failed.\n");
+            ret = ENOMEM;
+            goto done;
+        }
+        (*c)++;
     }
-    (*c)++;
 
     extra_args[*c] = talloc_asprintf(extra_args,
                                      "--scope=%s", scope);

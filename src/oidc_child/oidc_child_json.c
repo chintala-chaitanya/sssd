@@ -149,17 +149,33 @@ static char *get_json_scope(TALLOC_CTX *mem_ctx, const json_t *root,
     return str;
 }
 
-static errno_t get_endpoints(json_t *inp, struct devicecode_ctx *dc_ctx)
+static errno_t get_endpoints(json_t *inp, struct devicecode_ctx *dc_ctx,
+                             const char *device_auth_endpoint_fallback,
+                             const char *scope)
 {
     int ret;
 
     dc_ctx->device_authorization_endpoint = get_json_string(dc_ctx, inp,
                                                "device_authorization_endpoint");
     if (dc_ctx->device_authorization_endpoint == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "Missing device_authorization_endpoint in "
-                                   "openid configuration.\n");
-        ret = EINVAL;
-        goto done;
+        if (device_auth_endpoint_fallback == NULL) {
+            DEBUG(SSSDBG_CRIT_FAILURE, "Missing device_authorization_endpoint in "
+                                       "openid configuration.\n");
+            ret = EINVAL;
+            goto done;
+        }
+
+        dc_ctx->device_authorization_endpoint = talloc_strdup(
+                                                dc_ctx,
+                                                device_auth_endpoint_fallback);
+        if (dc_ctx->device_authorization_endpoint == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+
+        DEBUG(SSSDBG_TRACE_FUNC,
+              "Using configured device authorization endpoint because it is "
+              "not advertised in the OpenID configuration.\n");
     }
     dc_ctx->token_endpoint = get_json_string(dc_ctx, inp, "token_endpoint");
     if (dc_ctx->token_endpoint == NULL) {
@@ -183,10 +199,14 @@ static errno_t get_endpoints(json_t *inp, struct devicecode_ctx *dc_ctx)
                                    "configuration.\n");
     }
 
-    dc_ctx->scope = get_json_scope(dc_ctx, inp, "scopes_supported");
+    if (scope != NULL) {
+        dc_ctx->scope = talloc_strdup(dc_ctx, scope);
+    } else {
+        dc_ctx->scope = get_json_scope(dc_ctx, inp, "scopes_supported");
+    }
     if (dc_ctx->scope == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "Missing scopes in openid "
-                                   "configuration.\n");
+        DEBUG(SSSDBG_CRIT_FAILURE, "Missing scopes in OpenID "
+                                   "configuration and configuration.\n");
     }
 
     ret = EOK;
@@ -351,7 +371,9 @@ done:
     return ret;
 }
 
-errno_t parse_openid_configuration(struct devicecode_ctx *dc_ctx)
+errno_t parse_openid_configuration(struct devicecode_ctx *dc_ctx,
+                                   const char *device_auth_endpoint_fallback,
+                                   const char *scope)
 {
     int ret;
     json_t *root = NULL;
@@ -366,7 +388,7 @@ errno_t parse_openid_configuration(struct devicecode_ctx *dc_ctx)
         goto done;
     }
 
-    ret = get_endpoints(root, dc_ctx);
+    ret = get_endpoints(root, dc_ctx, device_auth_endpoint_fallback, scope);
     if (ret != EOK) {
         DEBUG(SSSDBG_OP_FAILURE, "Failed to get endpoints.\n");
         goto done;

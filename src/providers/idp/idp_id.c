@@ -97,6 +97,7 @@ errno_t set_oidc_extra_args(TALLOC_CTX *mem_ctx, struct idp_id_ctx *idp_id_ctx,
 
     ret = set_oidc_common_args(extra_args, &c,
                                idp_id_ctx->idp_type,
+                               idp_id_ctx->issuer_url,
                                idp_id_ctx->client_id,
                                idp_id_ctx->client_secret,
                                idp_id_ctx->token_endpoint,

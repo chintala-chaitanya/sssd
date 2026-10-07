@@ -317,7 +317,7 @@ static struct devicecode_ctx *get_dc_ctx(TALLOC_CTX *mem_ctx,
             goto done;
         }
 
-        ret = parse_openid_configuration(dc_ctx);
+        ret = parse_openid_configuration(dc_ctx, device_auth_endpoint, scope);
         if (ret != EOK) {
             DEBUG(SSSDBG_OP_FAILURE, "Failed to parse openid configuration.\n");
             goto done;
@@ -587,13 +587,13 @@ static int parse_cli(int argc, const char *argv[], struct cli_opts *opts)
     if (opts->oidc_cmd == GET_ACCESS_TOKEN
                 || opts->oidc_cmd == GET_DEVICE_CODE
                 || opts->oidc_cmd == REFRESH_ACCESS_TOKEN) {
-        if (!(
-                ((opts->issuer_url != NULL) != (opts->device_auth_endpoint != NULL))
-                    && ((opts->issuer_url != NULL) != (opts->token_endpoint != NULL))
-            )) {
+        if (opts->issuer_url == NULL
+                && (opts->device_auth_endpoint == NULL
+                    || opts->token_endpoint == NULL)) {
             fprintf(stderr, "\n--issuer-url or --device-auth-endpoint together "
-                            "with --token-endpoint are mutually exclusive "
-                            "but one variant must be given.\n\n");
+                            "with --token-endpoint must be given.  Explicit "
+                            "endpoints may be supplied with --issuer-url as "
+                            "fallbacks.\n\n");
             goto done;
         }
     }
@@ -786,13 +786,32 @@ int main(int argc, const char *argv[])
     }
 
     if (IS_ID_CMD(opts.oidc_cmd)) {
+        if (opts.issuer_url != NULL) {
+            dc_ctx = get_dc_ctx(main_ctx, opts.libcurl_debug, opts.ca_db,
+                                opts.issuer_url,
+                                opts.device_auth_endpoint, opts.token_endpoint,
+                                opts.userinfo_endpoint, opts.jwks_uri, opts.scope,
+                                opts.pkcs12_client_creds,
+                                opts.client_auth_method,
+                                opts.pkcs12_client_creds == NULL ? NULL
+                                                                 : opts.client_secret,
+                                provider_behavior);
+            if (dc_ctx == NULL) {
+                DEBUG(SSSDBG_OP_FAILURE,
+                      "Failed to discover OpenID configuration.\n");
+                goto done;
+            }
+        }
+
         ret = oidc_get_id(main_ctx, opts.oidc_cmd, opts.idp_type,
                           opts.search_str, opts.search_str_type,
                           opts.libcurl_debug, opts.ca_db,
                           opts.client_id, opts.client_secret,
                           opts.pkcs12_client_creds,
                           opts.client_auth_method,
-                          opts.token_endpoint, opts.scope, &out);
+                          dc_ctx == NULL ? opts.token_endpoint
+                                         : dc_ctx->token_endpoint,
+                          opts.scope, &out);
         if (ret != EOK) {
             DEBUG(SSSDBG_OP_FAILURE, "Id lookup failed.\n");
             goto done;

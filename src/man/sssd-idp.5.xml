@@ -120,13 +120,32 @@
                     </listitem>
                 </varlistentry>
                 <varlistentry>
+                    <term>idp_issuer_url (string)</term>
+                    <listitem>
+                        <para>
+                            URL of the OpenID Connect issuer. When set, SSSD
+                            retrieves the OpenID Provider Configuration from
+                            the issuer and uses its advertised token and
+                            userinfo endpoints. Existing explicit endpoint
+                            configuration remains supported when an issuer is
+                            not configured. An explicit device authorization
+                            endpoint can be retained as a fallback for a
+                            provider that does not advertise it.
+                        </para>
+                        <para>
+                            Default: Not set
+                        </para>
+                    </listitem>
+                </varlistentry>
+                <varlistentry>
                     <term>idp_token_endpoint (string)</term>
                     <listitem>
                         <para>
                             IdP endpoint for requesting access tokens.
                         </para>
                         <para>
-                            Default: Not set (Required)
+                            Default: Not set (Required unless
+                            <replaceable>idp_issuer_url</replaceable> is set)
                         </para>
                     </listitem>
                 </varlistentry>
