@@ -29,6 +29,7 @@
 #include "util/sss_cli_cmd.h"
 #include "src/providers/idp/idp_auth.h"
 #include "src/providers/idp/idp_private.h"
+#include "util/oidc_provider.h"
 
 static errno_t
 set_oidc_auth_extra_args(TALLOC_CTX *mem_ctx, struct idp_auth_ctx *idp_auth_ctx,
@@ -36,6 +37,7 @@ set_oidc_auth_extra_args(TALLOC_CTX *mem_ctx, struct idp_auth_ctx *idp_auth_ctx,
                          const char ***oidc_child_extra_args)
 {
     const char **extra_args;
+    const struct oidc_provider_behavior *provider_behavior;
     size_t c = 0;
     int ret;
 
@@ -114,16 +116,16 @@ set_oidc_auth_extra_args(TALLOC_CTX *mem_ctx, struct idp_auth_ctx *idp_auth_ctx,
     }
     c++;
 
-    if (idp_auth_ctx->idp_type != NULL
-            && (strncasecmp(idp_auth_ctx->idp_type, "keycloak:", 9) == 0
-                || strncasecmp(idp_auth_ctx->idp_type, "oci_iam:", 8) == 0)) {
-        /* Keycloak and OCI IAM expose the authenticated user as OIDC 'sub'. */
-        extra_args[c] = talloc_strdup(extra_args,
-                                      "--user-identifier-attribute=sub");
-    } else {
-        extra_args[c] = talloc_strdup(extra_args,
-                                      "--user-identifier-attribute=id");
+    provider_behavior = oidc_provider_get_behavior(idp_auth_ctx->idp_type);
+    if (provider_behavior == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, "Unsupported IdP type [%s].\n",
+              idp_auth_ctx->idp_type);
+        ret = EINVAL;
+        goto done;
     }
+    extra_args[c] = talloc_asprintf(extra_args,
+                                    "--user-identifier-attribute=%s",
+                                    provider_behavior->authenticated_user_claim);
     if (extra_args[c] == NULL) {
         DEBUG(SSSDBG_OP_FAILURE, "talloc_strdup failed.\n");
         ret = ENOMEM;

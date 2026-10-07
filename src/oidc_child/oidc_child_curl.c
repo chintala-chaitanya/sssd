@@ -797,8 +797,7 @@ errno_t get_devicecode(struct devicecode_ctx *dc_ctx,
         goto done;
     }
 
-    if (dc_ctx->oci_iam) {
-        /* OCI IAM requires this parameter and unauthenticated device requests. */
+    if (dc_ctx->provider_behavior->device_code_requires_response_type) {
         post_data = append_to_post_data(post_data, "response_type",
                                         "device_code");
         if (post_data == NULL) {
@@ -807,7 +806,10 @@ errno_t get_devicecode(struct devicecode_ctx *dc_ctx,
             ret = ENOMEM;
             goto done;
         }
-    } else {
+    }
+
+    if (dc_ctx->provider_behavior->device_code_client_auth
+            == OIDC_DEVICE_CODE_USE_CONFIGURED_CLIENT_AUTH) {
         post_data = append_to_creds_to_post_data(post_data, dc_ctx->rest_ctx,
                                                  dc_ctx->token_endpoint,
                                                  client_id, client_secret);

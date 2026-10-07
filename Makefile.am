@@ -922,6 +922,7 @@ dist_noinst_HEADERS = \
     src/shared/safealign.h \
     src/p11_child/p11_child.h \
     src/oidc_child/oidc_child_util.h \
+    src/util/oidc_provider.h \
     src/passkey_child/passkey_child.h \
     src/krb5_plugin/common/radius_kdcpreauth.h \
     src/krb5_plugin/common/radius_clpreauth.h \
@@ -4677,6 +4678,7 @@ libsss_ad_la_LDFLAGS = \
     -module
 
 libsss_idp_la_SOURCES = \
+    src/util/oidc_provider.c \
     src/providers/idp/idp_init.c \
     src/providers/idp/idp_opts.c \
     src/providers/idp/idp_id.c \
@@ -4922,6 +4924,7 @@ endif # BUILD_PASSKEY
 
 if BUILD_OIDC_CHILD
 oidc_child_SOURCES = \
+    src/util/oidc_provider.c \
     src/oidc_child/oidc_child.c \
     src/oidc_child/oidc_child_curl.c \
     src/oidc_child/oidc_child_json.c \

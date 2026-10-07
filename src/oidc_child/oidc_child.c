@@ -287,7 +287,7 @@ static struct devicecode_ctx *get_dc_ctx(TALLOC_CTX *mem_ctx,
                                          const char *pkcs12_client_creds,
                                          enum client_auth_method client_auth_method,
                                          const char *key_passwd,
-                                         bool oci_iam)
+                                         const struct oidc_provider_behavior *provider_behavior)
 {
     struct devicecode_ctx *dc_ctx = NULL;
     int ret;
@@ -299,7 +299,7 @@ static struct devicecode_ctx *get_dc_ctx(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    dc_ctx->oci_iam = oci_iam;
+    dc_ctx->provider_behavior = provider_behavior;
 
     dc_ctx->rest_ctx = get_rest_ctx(dc_ctx, libcurl_debug, ca_db,
                                     pkcs12_client_creds, client_auth_method,
@@ -400,17 +400,16 @@ static bool has_https_uri(const char *uri)
     return uri != NULL && strncasecmp(uri, "https://", strlen("https://")) == 0;
 }
 
-/* OCI IAM credentials and bearer tokens must never be sent to an unencrypted
- * endpoint. Other providers retain their existing endpoint handling. */
-static bool validate_oci_iam_endpoints(const struct cli_opts *opts)
+static bool validate_endpoint_security(const struct cli_opts *opts,
+                                       const struct oidc_provider_behavior *behavior)
 {
     const char *base_url;
 
-    if (opts->idp_type == NULL || strncasecmp(opts->idp_type, "oci_iam:", 8) != 0) {
+    if (!behavior->require_https_endpoints) {
         return true;
     }
 
-    base_url = opts->idp_type + 8;
+    base_url = strchr(opts->idp_type, ':') + 1;
     if (!has_https_uri(base_url)
             || (opts->issuer_url != NULL && !has_https_uri(opts->issuer_url))
             || (opts->device_auth_endpoint != NULL
@@ -420,7 +419,7 @@ static bool validate_oci_iam_endpoints(const struct cli_opts *opts)
                 && !has_https_uri(opts->userinfo_endpoint))
             || (opts->jwks_uri != NULL && !has_https_uri(opts->jwks_uri))) {
         DEBUG(SSSDBG_CRIT_FAILURE,
-              "OCI IAM endpoints and the SCIM base URL must use HTTPS.\n");
+              "Configured IdP endpoints and directory base URL must use HTTPS.\n");
         return false;
     }
 
@@ -725,7 +724,7 @@ int main(int argc, const char *argv[])
     int exit_status = EXIT_FAILURE;
     char *out = NULL;
     char *client_secret_tmp = NULL;
-    bool oci_iam;
+    const struct oidc_provider_behavior *provider_behavior;
 
     ret = parse_cli(argc, argv, &opts);
     if (ret != EOK) {
@@ -756,10 +755,14 @@ int main(int argc, const char *argv[])
     }
     talloc_steal(main_ctx, debug_prg_name);
 
-    oci_iam = opts.idp_type != NULL
-              && strncasecmp(opts.idp_type, "oci_iam:", 8) == 0;
+    provider_behavior = oidc_provider_get_behavior(opts.idp_type);
+    if (provider_behavior == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Unsupported IdP type [%s].\n",
+              opts.idp_type);
+        goto done;
+    }
 
-    if (!validate_oci_iam_endpoints(&opts)) {
+    if (!validate_endpoint_security(&opts, provider_behavior)) {
         goto done;
     }
 
@@ -814,7 +817,7 @@ int main(int argc, const char *argv[])
                             opts.client_auth_method,
                             opts.pkcs12_client_creds == NULL ? NULL
                                                              : opts.client_secret,
-                            oci_iam);
+                            provider_behavior);
         if (dc_ctx == NULL) {
             DEBUG(SSSDBG_OP_FAILURE, "Failed to initialize main context.\n");
             goto done;

@@ -928,6 +928,8 @@ errno_t oidc_get_id(TALLOC_CTX *mem_ctx, enum oidc_cmd oidc_cmd,
     struct rest_ctx *rest_ctx;
     char *cli_cred_reply;
     const char *bearer_token;
+    char *base_url = NULL;
+    const struct oidc_provider_behavior *provider_behavior;
 
     if (!IS_ID_CMD(oidc_cmd)) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unsupported command [%d].\n", oidc_cmd);
@@ -964,35 +966,41 @@ errno_t oidc_get_id(TALLOC_CTX *mem_ctx, enum oidc_cmd oidc_cmd,
         goto done;
     }
 
-    char *base_url = NULL;
-
     ret = parse_base_url_from_idp_type(mem_ctx, idp_type, &base_url);
     if (ret != EOK) {
         goto done;
     }
 
-    if (idp_type != NULL && strncasecmp(idp_type, "keycloak:",9) == 0) {
+    provider_behavior = oidc_provider_get_behavior(idp_type);
+    if (provider_behavior == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Unsupported IdP type [%s].\n", idp_type);
+        ret = EINVAL;
+        goto done;
+    }
+
+    switch (provider_behavior->kind) {
+    case OIDC_PROVIDER_KEYCLOAK:
         ret = keycloak_lookup(mem_ctx, oidc_cmd, base_url, input, input_type,
                               libcurl_debug, ca_db, client_id, client_secret,
                               token_endpoint, scope, bearer_token, rest_ctx,
                               out);
-    } else if (idp_type != NULL
-               && strncasecmp(idp_type, "oci_iam:", 8) == 0) {
+        break;
+    case OIDC_PROVIDER_OCI_IAM:
         ret = oci_iam_lookup(mem_ctx, oidc_cmd, base_url, input, input_type,
                              libcurl_debug, ca_db, client_id, client_secret,
                              token_endpoint, scope, bearer_token, rest_ctx,
                              out);
-    } else if (idp_type == NULL
-               || strcasecmp(idp_type, "entra_id") == 0
-               || strncasecmp(idp_type, "entra_id:", 9) == 0) {
+        break;
+    case OIDC_PROVIDER_ENTRA_ID:
         ret = entra_id_lookup(mem_ctx, oidc_cmd, base_url, input, input_type,
                               libcurl_debug, ca_db, client_id, client_secret,
                               token_endpoint, scope, bearer_token, rest_ctx,
                               out);
-    } else {
-        DEBUG(SSSDBG_CRIT_FAILURE, "Unsupported IdP type [%s].\n", idp_type);
+        break;
+    default:
+        DEBUG(SSSDBG_CRIT_FAILURE, "Unsupported provider behavior.\n");
         ret = EINVAL;
-        goto done;
+        break;
     }
 
 done:

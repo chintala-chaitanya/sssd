@@ -27,6 +27,7 @@
 
 #include <jansson.h>
 #include "util/util.h"
+#include "util/oidc_provider.h"
 
 enum oidc_cmd {
     NO_CMD = 0,
@@ -71,7 +72,7 @@ struct token_data {
 
 struct devicecode_ctx {
     struct rest_ctx *rest_ctx;
-    bool oci_iam;
+    const struct oidc_provider_behavior *provider_behavior;
     const char *device_authorization_endpoint;
     const char *token_endpoint;
     const char *userinfo_endpoint;
