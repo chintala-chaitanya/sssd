@@ -375,6 +375,7 @@ static struct tevent_req *idp_auth_send(TALLOC_CTX *mem_ctx,
     }
 
     state->idp_req->idp_options = idp_auth_ctx->idp_options;
+    state->idp_req->metadata_cache = idp_auth_ctx->metadata_cache;
 
     ret = set_oidc_auth_extra_args(state, idp_auth_ctx, state->pd,
                                    &state->idp_req->oidc_child_extra_args);

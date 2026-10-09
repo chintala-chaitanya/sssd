@@ -260,6 +260,7 @@ static errno_t idp_type_get_step(struct tevent_req *req)
     }
 
     state->idp_req->idp_options = state->idp_id_ctx->idp_options;
+    state->idp_req->metadata_cache = state->idp_id_ctx->metadata_cache;
 
     ret = set_oidc_extra_args(state, state->idp_id_ctx, state->lookup_type,
                               state->filter_value,

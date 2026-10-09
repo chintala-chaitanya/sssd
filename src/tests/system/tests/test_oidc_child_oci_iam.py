@@ -56,6 +56,30 @@ def _run_identity_lookup(client: Client, action: str, name: str):
     return client.host.conn.run(command, input=_environment("SSSD_TEST_OCI_IAM_CLIENT_SECRET"))
 
 
+@pytest.mark.importance("high")
+@pytest.mark.topology(KnownTopology.Client)
+def test_oidc_child_oci_iam__openid_configuration(client: Client):
+    """Return discovered endpoints, including OCI's configured device fallback."""
+
+    base_url = _environment("SSSD_TEST_OCI_IAM_BASE_URL").rstrip("/")
+    command = shlex.join(
+        [
+            OIDC_CHILD,
+            "--get-openid-configuration",
+            "--idp-type=" + "oci_iam:" + base_url,
+            "--issuer-url=" + base_url,
+            "--device-auth-endpoint=" + base_url + "/oauth2/v1/device",
+        ]
+    )
+    result = client.host.conn.run(command)
+    metadata = json.loads(result.stdout)
+
+    assert metadata["token_endpoint"].startswith("https://")
+    assert metadata["userinfo_endpoint"].startswith("https://")
+    assert metadata["device_authorization_endpoint"] == base_url + "/oauth2/v1/device"
+    assert metadata["jwks_uri"].startswith("https://")
+
+
 @pytest.mark.importance("critical")
 @pytest.mark.topology(KnownTopology.Client)
 def test_oidc_child_oci_iam__identity_and_membership(client: Client):

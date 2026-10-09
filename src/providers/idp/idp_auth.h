@@ -33,6 +33,7 @@ struct idp_auth_ctx {
     struct be_ctx *be_ctx;
     struct idp_init_ctx *init_ctx;
     struct dp_option *idp_options;
+    struct idp_metadata_cache *metadata_cache;
     hash_table_t *open_request_table;
 
     const char *idp_type;

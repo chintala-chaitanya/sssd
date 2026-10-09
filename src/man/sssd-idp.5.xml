@@ -138,6 +138,22 @@
                     </listitem>
                 </varlistentry>
                 <varlistentry>
+                    <term>idp_metadata_cache_timeout (integer)</term>
+                    <listitem>
+                        <para>
+                            Lifetime in seconds of the OpenID Provider
+                            Configuration cached by the IdP backend. A value
+                            of zero fetches metadata for every operation.
+                            Concurrent operations share one refresh request.
+                            This option applies when
+                            <replaceable>idp_issuer_url</replaceable> is set.
+                        </para>
+                        <para>
+                            Default: 3600
+                        </para>
+                    </listitem>
+                </varlistentry>
+                <varlistentry>
                     <term>idp_token_endpoint (string)</term>
                     <listitem>
                         <para>

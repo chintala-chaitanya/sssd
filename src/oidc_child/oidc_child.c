@@ -46,6 +46,7 @@ const char *oidc_cmd_str[] = {
     "get-group",
     "get-group-members",
     "refresh-access-token",
+    "get-openid-configuration",
     NULL
 };
 
@@ -277,6 +278,8 @@ done:
     return ret;
 }
 
+static bool has_https_uri(const char *uri);
+
 static struct devicecode_ctx *get_dc_ctx(TALLOC_CTX *mem_ctx,
                                          bool libcurl_debug, const char *ca_db,
                                          const char *issuer_url,
@@ -320,6 +323,18 @@ static struct devicecode_ctx *get_dc_ctx(TALLOC_CTX *mem_ctx,
         ret = parse_openid_configuration(dc_ctx, device_auth_endpoint, scope);
         if (ret != EOK) {
             DEBUG(SSSDBG_OP_FAILURE, "Failed to parse openid configuration.\n");
+            goto done;
+        }
+
+        if (provider_behavior->require_https_endpoints
+                && (!has_https_uri(dc_ctx->token_endpoint)
+                    || !has_https_uri(dc_ctx->userinfo_endpoint)
+                    || !has_https_uri(dc_ctx->device_authorization_endpoint)
+                    || (dc_ctx->jwks_uri != NULL
+                        && !has_https_uri(dc_ctx->jwks_uri)))) {
+            DEBUG(SSSDBG_CRIT_FAILURE,
+                  "Discovered IdP endpoints must use HTTPS.\n");
+            ret = EINVAL;
             goto done;
         }
     } else if (device_auth_endpoint != NULL && token_endpoint != NULL) {
@@ -511,6 +526,8 @@ static int parse_cli(int argc, const char *argv[], struct cli_opts *opts)
                 _("Lookup members of a group"), NULL},
         {"refresh-access-token", 0, POPT_ARG_VAL, &opts->oidc_cmd, REFRESH_ACCESS_TOKEN,
                 _("Refresh access token"), NULL},
+        {"get-openid-configuration", 0, POPT_ARG_VAL, &opts->oidc_cmd,
+                GET_OPENID_CONFIGURATION, _("Retrieve OpenID metadata"), NULL},
         {"issuer-url", 0, POPT_ARG_STRING, &opts->issuer_url, 0,
                 _("URL of Issuer IdP"), NULL},
         {"device-auth-endpoint", 0, POPT_ARG_STRING, &opts->device_auth_endpoint, 0,
@@ -586,7 +603,8 @@ static int parse_cli(int argc, const char *argv[], struct cli_opts *opts)
 
     if (opts->oidc_cmd == GET_ACCESS_TOKEN
                 || opts->oidc_cmd == GET_DEVICE_CODE
-                || opts->oidc_cmd == REFRESH_ACCESS_TOKEN) {
+                || opts->oidc_cmd == REFRESH_ACCESS_TOKEN
+                || opts->oidc_cmd == GET_OPENID_CONFIGURATION) {
         if (opts->issuer_url == NULL
                 && (opts->device_auth_endpoint == NULL
                     || opts->token_endpoint == NULL)) {
@@ -598,7 +616,7 @@ static int parse_cli(int argc, const char *argv[], struct cli_opts *opts)
         }
     }
 
-    if (opts->client_id == NULL) {
+    if (opts->client_id == NULL && opts->oidc_cmd != GET_OPENID_CONFIGURATION) {
         fprintf(stderr, "\n--client-id must be given.\n\n");
         goto done;
     }
@@ -719,7 +737,7 @@ int main(int argc, const char *argv[])
     errno_t ret;
     json_error_t json_error;
     TALLOC_CTX *main_ctx = NULL;
-    struct devicecode_ctx *dc_ctx;
+    struct devicecode_ctx *dc_ctx = NULL;
     const char *user_identifier = NULL;
     int exit_status = EXIT_FAILURE;
     char *out = NULL;
@@ -827,7 +845,8 @@ int main(int argc, const char *argv[])
 
     if (opts.oidc_cmd == GET_DEVICE_CODE
                 || opts.oidc_cmd == GET_ACCESS_TOKEN
-                || opts.oidc_cmd == REFRESH_ACCESS_TOKEN) {
+                || opts.oidc_cmd == REFRESH_ACCESS_TOKEN
+                || opts.oidc_cmd == GET_OPENID_CONFIGURATION) {
         dc_ctx = get_dc_ctx(main_ctx, opts.libcurl_debug, opts.ca_db,
                             opts.issuer_url,
                             opts.device_auth_endpoint, opts.token_endpoint,
@@ -846,6 +865,37 @@ int main(int argc, const char *argv[])
                                    opts.oidc_cmd);
         ret = EINVAL;
         goto done;
+    }
+
+    if (opts.oidc_cmd == GET_OPENID_CONFIGURATION) {
+        json_t *metadata = json_object();
+        if (metadata == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+        if (json_object_set_new(metadata, "token_endpoint",
+                                json_string(dc_ctx->token_endpoint)) != 0
+                || json_object_set_new(metadata, "userinfo_endpoint",
+                                       json_string(dc_ctx->userinfo_endpoint)) != 0
+                || json_object_set_new(metadata, "device_authorization_endpoint",
+                                       json_string(dc_ctx->device_authorization_endpoint)) != 0
+                || (dc_ctx->jwks_uri != NULL
+                    && json_object_set_new(metadata, "jwks_uri",
+                                           json_string(dc_ctx->jwks_uri)) != 0)) {
+            DEBUG(SSSDBG_OP_FAILURE, "Failed to construct OpenID metadata reply.\n");
+            json_decref(metadata);
+            ret = ENOMEM;
+            goto done;
+        }
+        if (json_dumpf(metadata, stdout, JSON_COMPACT) != 0) {
+            DEBUG(SSSDBG_OP_FAILURE, "Failed to write OpenID metadata reply.\n");
+            json_decref(metadata);
+            ret = EIO;
+            goto done;
+        }
+        json_decref(metadata);
+        fflush(stdout);
+        goto success;
     }
 
     if (opts.oidc_cmd == GET_DEVICE_CODE) {

@@ -28,6 +28,7 @@
 
 #include "config.h"
 #include <stdbool.h>
+#include <time.h>
 
 #include "providers/backend.h"
 #include "util/util.h"
@@ -36,6 +37,7 @@ enum idp_opts {
     IDP_REQ_TIMEOUT = 0,
     IDP_TYPE,
     IDP_ISSUER_URL,
+    IDP_METADATA_CACHE_TIMEOUT,
     IDP_CLIENT_ID,
     IDP_CLIENT_SECRET,
     IDP_TOKEN_ENDPOINT,
@@ -52,9 +54,30 @@ enum idp_opts {
 };
 
 struct idp_id_ctx;
+struct idp_metadata_waiter;
+
+/*
+ * Issuer metadata belongs to the long-running backend, not oidc_child.
+ * oidc_child is deliberately short lived and only refreshes this record.
+ */
+struct idp_metadata_cache {
+    struct dp_option *idp_options;
+    const char *issuer_url;
+    const char *device_auth_fallback;
+    const char *idp_type;
+    int timeout;
+    char *token_endpoint;
+    char *userinfo_endpoint;
+    char *device_auth_endpoint;
+    char *jwks_uri;
+    time_t expires_at;
+    struct tevent_req *refresh_req;
+    struct idp_metadata_waiter *waiters;
+};
 
 struct idp_req {
     struct dp_option *idp_options;
+    struct idp_metadata_cache *metadata_cache;
     const char **oidc_child_extra_args;
     struct io_buffer *send_buffer;
 };

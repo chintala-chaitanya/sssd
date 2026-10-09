@@ -43,6 +43,8 @@ struct idp_init_ctx {
     const char *client_secret;
     const char *token_endpoint;
     const char *scope;
+
+    struct idp_metadata_cache *metadata_cache;
 };
 
 static void token_refresh_table_delete_cb(hash_entry_t *item,
@@ -114,6 +116,26 @@ errno_t sssm_idp_init(TALLOC_CTX *mem_ctx,
     /* idp_type may be NULL */
     init_ctx->idp_type = dp_opt_get_cstring(init_ctx->opts, IDP_TYPE);
     init_ctx->issuer_url = dp_opt_get_cstring(init_ctx->opts, IDP_ISSUER_URL);
+    init_ctx->metadata_cache = talloc_zero(init_ctx, struct idp_metadata_cache);
+    if (init_ctx->metadata_cache == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+    init_ctx->metadata_cache->issuer_url = init_ctx->issuer_url;
+    init_ctx->metadata_cache->idp_type = init_ctx->idp_type;
+    init_ctx->metadata_cache->idp_options = init_ctx->opts;
+    init_ctx->metadata_cache->device_auth_fallback = dp_opt_get_cstring(
+                                            init_ctx->opts,
+                                            IDP_DEVICE_AUTH_ENDPOINT);
+    init_ctx->metadata_cache->timeout = dp_opt_get_int(
+                                            init_ctx->opts,
+                                            IDP_METADATA_CACHE_TIMEOUT);
+    if (init_ctx->metadata_cache->timeout < 0) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "idp_metadata_cache_timeout must not be negative.\n");
+        ret = EINVAL;
+        goto done;
+    }
 
     init_ctx->client_id = dp_opt_get_cstring(init_ctx->opts,
                                              IDP_CLIENT_ID);
@@ -253,6 +275,7 @@ errno_t sssm_idp_id_init(TALLOC_CTX *mem_ctx,
     id_ctx->be_ctx = be_ctx;
     id_ctx->init_ctx = init_ctx;
     id_ctx->idp_options = init_ctx->opts;
+    id_ctx->metadata_cache = init_ctx->metadata_cache;
 
     id_ctx->idp_type = init_ctx->idp_type;
     id_ctx->issuer_url = init_ctx->issuer_url;
@@ -353,6 +376,7 @@ errno_t sssm_idp_auth_init(TALLOC_CTX *mem_ctx,
     auth_ctx->be_ctx = be_ctx;
     auth_ctx->init_ctx = init_ctx;
     auth_ctx->idp_options = init_ctx->opts;
+    auth_ctx->metadata_cache = init_ctx->metadata_cache;
 
     auth_ctx->idp_type = init_ctx->idp_type;
     auth_ctx->issuer_url = init_ctx->issuer_url;
