@@ -63,8 +63,9 @@
                     <listitem>
                         <para>
                             Required option that specifies the IdP product.
-                            Currently Entra ID (entra_id), Keycloak (keycloak),
-                            and OCI IAM Identity Domains (oci_iam) are
+                            Currently Entra ID (entra_id) and Keycloak
+                            (keycloak) are supported.
+                            OCI IAM Identity Domains (oci_iam) are also
                             supported.
                         </para>
                         <para>
@@ -77,9 +78,9 @@
                              endpoints instead of the default
                              (https://graph.microsoft.com/v1.0). E.g.
                              <quote>entra_id:https://graph.microsoft.us/v1.0</quote>
-                             for the US government cloud (GCC High). OCI IAM
-                             requires the base URI of its Identity Domain SCIM
-                             API, for example
+                             for the US government cloud (GCC High).
+                             OCI IAM requires the base URI of its Identity
+                             Domain SCIM API, for example
                              <quote>oci_iam:https://example.identity.oraclecloud.com</quote>.
                              OCI IAM requires HTTPS for this base URI and all
                              configured OAuth/OIDC endpoints.
@@ -125,12 +126,13 @@
                         <para>
                             URL of the OpenID Connect issuer. When set, SSSD
                             retrieves the OpenID Provider Configuration from
-                            the issuer and uses its advertised token and
-                            userinfo endpoints. Existing explicit endpoint
-                            configuration remains supported when an issuer is
-                            not configured. An explicit device authorization
-                            endpoint can be retained as a fallback for a
-                            provider that does not advertise it.
+                            the issuer and uses its advertised token,
+                            userinfo, and signing-key endpoints. Existing
+                            explicit endpoint configuration remains supported
+                            when an issuer is not configured. An explicit
+                            device authorization endpoint can be retained as
+                            a fallback for a provider that does not advertise
+                            it.
                         </para>
                         <para>
                             Default: Not set
@@ -172,8 +174,11 @@
                     <listitem>
                         <para>
                             IdP endpoint for device authorization according
-                            to RFC-8628. This is required for user
-                            authentication.
+                            to RFC-8628. When an issuer is configured, this
+                            endpoint is used as a fallback if the OpenID
+                            Provider Configuration does not advertise it.
+                            Device authorization requires either this option
+                            or a discovered endpoint.
                         </para>
                         <para>
                             Default: Not set
@@ -186,7 +191,8 @@
                         <para>
                             IdP userinfo endpoint to request user attributes
                             after a successful authentication of the user.
-                            Required for authentication.
+                            Required for authentication unless discovered
+                            from the configured issuer.
                         </para>
                         <para>
                             Default: Not set
@@ -344,12 +350,17 @@ id_provider = idp
 idp_type = oci_iam:https://example.identity.oraclecloud.com
 idp_client_id = YOUR-CLIENT-ID
 idp_client_secret = YOUR-CLIENT-SECRET
-idp_token_endpoint = https://example.identity.oraclecloud.com/oauth2/v1/token
-idp_userinfo_endpoint = https://example.identity.oraclecloud.com/oauth2/v1/userinfo
+idp_issuer_url = https://example.identity.oraclecloud.com
 idp_device_auth_endpoint = https://example.identity.oraclecloud.com/oauth2/v1/device
+idp_metadata_cache_timeout = 3600
 idp_id_scope = urn:opc:idm:__myscopes__
 idp_auth_scope = openid profile
 </programlisting>
+        </para>
+        <para>
+            The OCI IAM example discovers the token and userinfo endpoints
+            from the issuer. The configured device endpoint is a fallback
+            because the tested OCI IAM metadata does not advertise it.
         </para>
         <para>
             For OCI IAM users whose <literal>userName</literal> is an email
