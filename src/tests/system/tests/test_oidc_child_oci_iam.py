@@ -59,7 +59,7 @@ def _run_identity_lookup(client: Client, action: str, name: str):
 @pytest.mark.importance("high")
 @pytest.mark.topology(KnownTopology.Client)
 def test_oidc_child_oci_iam__openid_configuration(client: Client):
-    """Return discovered endpoints, including OCI's configured device fallback."""
+    """Return discovered endpoints while retaining OCI's configured device endpoint."""
 
     base_url = _environment("SSSD_TEST_OCI_IAM_BASE_URL").rstrip("/")
     command = shlex.join(

@@ -127,7 +127,12 @@ token and device endpoints discovered, Graph `/me` configured explicitly, and
 the original UID and allow-group membership retained through a pinned seed.
 An interactive Entra SSH login with this latest build also completed the
 Device Code flow successfully. The Entra host's original SSSD configuration
-was restored afterward. A live Keycloak system-test run remains pending.
+was restored afterward. All three checked-in OCI IAM contract tests also
+passed against the configured OL10 test domain: discovery, SCIM identity and
+membership lookups, and Device Code issuance. They were run with a temporary
+local pytest connection fixture because the host is not a separate
+pytest-mh-managed client; a full multihost CI run remains pending. A live
+Keycloak system-test run was not performed.
 
 ## Files added
 
