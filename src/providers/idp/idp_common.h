@@ -71,6 +71,8 @@ struct idp_metadata_cache {
     char *device_auth_endpoint;
     char *jwks_uri;
     time_t expires_at;
+    time_t retry_after;
+    errno_t retry_error;
     struct tevent_req *refresh_req;
     struct idp_metadata_waiter *waiters;
 };

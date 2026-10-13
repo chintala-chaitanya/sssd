@@ -30,6 +30,7 @@
 
 #define OIDC_CHILD SSSD_LIBEXEC_PATH"/oidc_child"
 #define OIDC_CHILD_LOG_FILE "oidc_child"
+#define IDP_METADATA_RETRY_DELAY 5
 
 struct handle_oidc_child_state {
     struct tevent_context *ev;
@@ -262,6 +263,19 @@ static void idp_metadata_notify_waiters(struct idp_metadata_cache *cache,
                                          errno_t ret)
 {
     struct idp_metadata_waiter *waiter;
+    time_t now;
+
+    if (ret == EOK) {
+        cache->retry_after = 0;
+        cache->retry_error = EOK;
+    } else {
+        now = time(NULL);
+        cache->retry_after = now == (time_t) -1
+                             ? 0 : now + IDP_METADATA_RETRY_DELAY;
+        cache->retry_error = ret;
+        DEBUG(SSSDBG_OP_FAILURE,
+              "OpenID metadata refresh failed [%d]; retry delayed.\n", ret);
+    }
 
     while ((waiter = cache->waiters) != NULL) {
         DLIST_REMOVE(cache->waiters, waiter);
@@ -442,6 +456,11 @@ static struct tevent_req *idp_metadata_get_send(TALLOC_CTX *mem_ctx,
             && now < cache->expires_at) {
         DEBUG(SSSDBG_TRACE_FUNC, "Using cached OpenID metadata.\n");
         tevent_req_done(req);
+        return tevent_req_post(req, ev);
+    }
+    if (now != (time_t) -1 && now < cache->retry_after) {
+        DEBUG(SSSDBG_TRACE_FUNC, "OpenID metadata retry deferred.\n");
+        tevent_req_error(req, cache->retry_error);
         return tevent_req_post(req, ev);
     }
 

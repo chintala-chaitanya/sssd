@@ -145,6 +145,8 @@
                             Configuration cached by the IdP backend. A value
                             of zero fetches metadata for every operation.
                             Concurrent operations share one refresh request.
+                            A failed refresh is retried after five seconds,
+                            rather than once for each incoming request.
                             This option applies when
                             <replaceable>idp_issuer_url</replaceable> is set.
                         </para>
