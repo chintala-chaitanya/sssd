@@ -382,6 +382,8 @@ static errno_t idp_metadata_start_refresh(struct idp_metadata_cache *cache,
     struct idp_req *idp_req;
     struct io_buffer *empty;
     const char **args;
+    const char *token_endpoint;
+    const char *userinfo_endpoint;
     size_t c = 0;
 
     idp_req = talloc_zero(cache, struct idp_req);
@@ -389,7 +391,7 @@ static errno_t idp_metadata_start_refresh(struct idp_metadata_cache *cache,
         return ENOMEM;
     }
     idp_req->idp_options = cache->idp_options;
-    args = talloc_zero_array(idp_req, const char *, 5);
+    args = talloc_zero_array(idp_req, const char *, 7);
     if (args == NULL) {
         talloc_free(idp_req);
         return ENOMEM;
@@ -410,6 +412,25 @@ static errno_t idp_metadata_start_refresh(struct idp_metadata_cache *cache,
     if (cache->device_auth_fallback != NULL) {
         args[c] = talloc_asprintf(args, "--device-auth-endpoint=%s",
                                     cache->device_auth_fallback);
+        if (args[c++] == NULL) {
+            talloc_free(idp_req);
+            return ENOMEM;
+        }
+    }
+    token_endpoint = dp_opt_get_cstring(cache->idp_options,
+                                        IDP_TOKEN_ENDPOINT);
+    if (token_endpoint != NULL) {
+        args[c] = talloc_asprintf(args, "--token-endpoint=%s", token_endpoint);
+        if (args[c++] == NULL) {
+            talloc_free(idp_req);
+            return ENOMEM;
+        }
+    }
+    userinfo_endpoint = dp_opt_get_cstring(cache->idp_options,
+                                           IDP_USERINFO_ENDPOINT);
+    if (userinfo_endpoint != NULL) {
+        args[c] = talloc_asprintf(args, "--userinfo-endpoint=%s",
+                                  userinfo_endpoint);
         if (args[c++] == NULL) {
             talloc_free(idp_req);
             return ENOMEM;

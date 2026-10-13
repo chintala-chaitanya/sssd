@@ -320,7 +320,9 @@ static struct devicecode_ctx *get_dc_ctx(TALLOC_CTX *mem_ctx,
             goto done;
         }
 
-        ret = parse_openid_configuration(dc_ctx, device_auth_endpoint, scope);
+        ret = parse_openid_configuration(dc_ctx, device_auth_endpoint,
+                                         token_endpoint, userinfo_endpoint,
+                                         jwks_uri, scope);
         if (ret != EOK) {
             DEBUG(SSSDBG_OP_FAILURE, "Failed to parse openid configuration.\n");
             goto done;
@@ -611,7 +613,7 @@ static int parse_cli(int argc, const char *argv[], struct cli_opts *opts)
             fprintf(stderr, "\n--issuer-url or --device-auth-endpoint together "
                             "with --token-endpoint must be given.  Explicit "
                             "endpoints may be supplied with --issuer-url as "
-                            "fallbacks.\n\n");
+                            "overrides.\n\n");
             goto done;
         }
     }

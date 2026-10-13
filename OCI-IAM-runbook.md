@@ -34,7 +34,7 @@ Create a confidential OCI IAM application with:
 The identity-domain issuer is `https://<DOMAIN>.identity.oraclecloud.com`.
 The refactor build discovers its token and userinfo URLs from the issuer's
 OpenID configuration. OCI IAM does not advertise a device authorization
-endpoint in the tested metadata, so configure this endpoint as a fallback:
+endpoint in the tested metadata, so configure this endpoint explicitly:
 
 ```text
 device: https://<DOMAIN>.identity.oraclecloud.com/oauth2/v1/device
@@ -219,11 +219,16 @@ interactive_prompt = Complete OCI IAM authentication in the browser, then press 
 
 `idp_type` selects the OCI IAM SCIM adapter; `idp_issuer_url` supplies the OIDC
 issuer for endpoint discovery. The refactor caches discovered metadata in the
-SSSD backend for the configured number of seconds (3600 by default). When an
-issuer is set, discovered token and userinfo endpoints take precedence over
-explicit endpoint values. The configured device URL is used only if discovery
-does not advertise one. The cache is shared by requests handled by that
-backend and is reset when SSSD restarts.
+SSSD backend for the configured number of seconds (3600 by default). Explicit
+endpoint settings take precedence; discovery fills in any that are not
+configured. OCI IAM's device URL is configured explicitly because its tested
+metadata does not advertise that endpoint. The cache is shared by requests
+handled by that backend and is reset when SSSD restarts.
+
+If this host previously used an explicit `idp_token_endpoint`, retain that
+exact URL as `idp_idmap_seed` before removing the endpoint setting. This
+preserves existing numeric UID/GID mappings; see the cache and ID-mapping
+notes below.
 
 Protect the secret:
 
@@ -404,9 +409,14 @@ Do not use `sss_cache -E` as a normal operations process. It is useful for
 validation and emergency troubleshooting.
 
 The adapter generates deterministic POSIX UID/GID mappings from immutable OCI
-SCIM identifiers and SSSD idmap inputs. Use the same endpoint and idmap policy
-on every host for consistent IDs. An OCI user recreated with a new SCIM ID is a
-new Linux identity even if it has the same name.
+SCIM identifiers and SSSD idmap inputs. The mapping seed defaults to the
+configured token endpoint, or to the issuer URL if no token endpoint is set.
+Use the same seed and idmap policy on every host for consistent IDs. If you
+remove an explicit token endpoint from an existing host in favor of discovery,
+set `idp_idmap_seed` to the exact old token endpoint URL first; otherwise UIDs
+and GIDs can change even if the discovered endpoint is functionally the same.
+An OCI user recreated with a new SCIM ID is a new Linux identity even if it
+has the same name.
 
 After group membership removal, refresh during testing:
 

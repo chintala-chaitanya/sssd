@@ -41,6 +41,7 @@ struct idp_id_ctx {
     const char *client_id;
     const char *client_secret;
     const char *token_endpoint;
+    const char *idmap_seed;
     const char *scope;
 };
 

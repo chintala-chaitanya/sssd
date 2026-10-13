@@ -281,10 +281,15 @@ errno_t sssm_idp_id_init(TALLOC_CTX *mem_ctx,
     id_ctx->issuer_url = init_ctx->issuer_url;
     id_ctx->client_id = init_ctx->client_id;
     id_ctx->client_secret = init_ctx->client_secret;
-    /* Keep a stable id-mapping key when discovery supplies the endpoint. */
+    /* The metadata cache replaces this placeholder before invoking oidc_child. */
     id_ctx->token_endpoint = init_ctx->token_endpoint != NULL
                                 ? init_ctx->token_endpoint
                                 : init_ctx->issuer_url;
+    id_ctx->idmap_seed = dp_opt_get_cstring(init_ctx->opts, IDP_IDMAP_SEED);
+    if (id_ctx->idmap_seed == NULL) {
+        /* Preserve the historical token-endpoint key unless overridden. */
+        id_ctx->idmap_seed = id_ctx->token_endpoint;
+    }
     id_ctx->scope = init_ctx->scope;
 
     err = sss_idmap_init(sss_idmap_talloc, init_ctx, sss_idmap_talloc_free,
@@ -306,22 +311,17 @@ errno_t sssm_idp_id_init(TALLOC_CTX *mem_ctx,
 
     /* TODO: The range_id (2nd parameter) should be configurable */
     err = sss_idmap_calculate_range(id_ctx->idmap_ctx,
-                                    id_ctx->token_endpoint != NULL
-                                        ? id_ctx->token_endpoint
-                                        : id_ctx->issuer_url,
-                                    NULL, &id_range);
+                                    id_ctx->idmap_seed, NULL, &id_range);
     if (err != IDMAP_SUCCESS) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "Failed to calculate id range for [%s]: [%s].\n",
-              id_ctx->token_endpoint, idmap_error_string(err));
+              id_ctx->idmap_seed, idmap_error_string(err));
         ret = EINVAL;
         goto done;
     }
 
     err = sss_idmap_add_gen_domain_ex(id_ctx->idmap_ctx, be_ctx->domain->name,
-                                      id_ctx->token_endpoint != NULL
-                                          ? id_ctx->token_endpoint
-                                          : id_ctx->issuer_url, &id_range,
+                                      id_ctx->idmap_seed, &id_range,
                                       NULL, NULL, NULL, NULL, 0, false);
     if (err != IDMAP_SUCCESS) {
         DEBUG(SSSDBG_CRIT_FAILURE,
@@ -429,6 +429,9 @@ errno_t sssm_idp_auth_init(TALLOC_CTX *mem_ctx,
         ret = EINVAL;
         goto done;
     }
+
+    auth_ctx->auth_user_identifier_attr = dp_opt_get_cstring(init_ctx->opts,
+                                             IDP_AUTH_USER_IDENTIFIER_ATTR);
 
     dp_set_method(dp_methods, DPM_AUTH_HANDLER,
                   idp_pam_auth_handler_send, idp_pam_auth_handler_recv, auth_ctx,

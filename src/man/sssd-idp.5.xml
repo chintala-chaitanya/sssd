@@ -126,13 +126,12 @@
                         <para>
                             URL of the OpenID Connect issuer. When set, SSSD
                             retrieves the OpenID Provider Configuration from
-                            the issuer and uses its advertised token,
-                            userinfo, and signing-key endpoints. Existing
-                            explicit endpoint configuration remains supported
-                            when an issuer is not configured. An explicit
-                            device authorization endpoint can be retained as
-                            a fallback for a provider that does not advertise
-                            it.
+                            the issuer. Explicit token, userinfo, device
+                            authorization endpoints take precedence over
+                            discovered values; discovery fills
+                            in only the endpoints that are not configured.
+                            When an issuer is not configured, the required
+                            endpoints must be configured explicitly.
                         </para>
                         <para>
                             Default: Not set
@@ -161,7 +160,9 @@
                     <term>idp_token_endpoint (string)</term>
                     <listitem>
                         <para>
-                            IdP endpoint for requesting access tokens.
+                            IdP endpoint for requesting access tokens. When
+                            configured, this value overrides the discovered
+                            token endpoint.
                         </para>
                         <para>
                             Default: Not set (Required unless
@@ -170,13 +171,30 @@
                     </listitem>
                 </varlistentry>
                 <varlistentry>
+                    <term>idp_idmap_seed (string)</term>
+                    <listitem>
+                        <para>
+                            Stable string used with the IdP object identifier
+                            to calculate POSIX UID and GID values. Set the same
+                            value on every host that must share numeric IDs.
+                            Changing this value changes generated IDs. When
+                            migrating an existing domain from an explicit
+                            token endpoint to issuer discovery, set this to
+                            the exact former token endpoint to preserve IDs.
+                        </para>
+                        <para>
+                            Default: The configured token endpoint, or the
+                            issuer URL when no token endpoint is configured.
+                        </para>
+                    </listitem>
+                </varlistentry>
+                <varlistentry>
                     <term>idp_device_auth_endpoint (string)</term>
                     <listitem>
                         <para>
                             IdP endpoint for device authorization according
-                            to RFC-8628. When an issuer is configured, this
-                            endpoint is used as a fallback if the OpenID
-                            Provider Configuration does not advertise it.
+                            to RFC-8628. When configured, this value overrides
+                            the discovered device authorization endpoint.
                             Device authorization requires either this option
                             or a discovered endpoint.
                         </para>
@@ -191,8 +209,9 @@
                         <para>
                             IdP userinfo endpoint to request user attributes
                             after a successful authentication of the user.
-                            Required for authentication unless discovered
-                            from the configured issuer.
+                            When configured, this value overrides the
+                            discovered userinfo endpoint. Required for
+                            authentication unless discovered from the issuer.
                         </para>
                         <para>
                             Default: Not set
@@ -228,13 +247,29 @@
                         <para>
                             Currently the tokens returned during user
                             authentication are not used for other purposes
-                            hence the only important claim is the subject
-                            identifier 'sub' which is used to check if the
-                            authenticated user is the one trying to log in.
-                            This might change in future.
+                            hence the important claim is the identifier used
+                            to check if the authenticated user is the one
+                            trying to log in. By default, Entra ID uses
+                            <quote>id</quote>, while Keycloak and OCI IAM use
+                            <quote>sub</quote>.
                         </para>
                         <para>
                             Default: Not set
+                        </para>
+                    </listitem>
+                </varlistentry>
+                <varlistentry>
+                    <term>idp_auth_user_identifier_attr (string)</term>
+                    <listitem>
+                        <para>
+                            Userinfo or token claim used to identify the
+                            authenticated user. When set, this overrides the
+                            provider's default identifier attribute. The
+                            selected claim must resolve to the same identifier
+                            as the identity lookup for this domain.
+                        </para>
+                        <para>
+                            Default: Provider-specific
                         </para>
                     </listitem>
                 </varlistentry>
@@ -359,7 +394,7 @@ idp_auth_scope = openid profile
         </para>
         <para>
             The OCI IAM example discovers the token and userinfo endpoints
-            from the issuer. The configured device endpoint is a fallback
+            from the issuer. The device endpoint is configured explicitly
             because the tested OCI IAM metadata does not advertise it.
         </para>
         <para>

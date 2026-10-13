@@ -150,50 +150,42 @@ static char *get_json_scope(TALLOC_CTX *mem_ctx, const json_t *root,
 }
 
 static errno_t get_endpoints(json_t *inp, struct devicecode_ctx *dc_ctx,
-                             const char *device_auth_endpoint_fallback,
+                             const char *device_auth_endpoint,
+                             const char *token_endpoint,
+                             const char *userinfo_endpoint,
+                             const char *jwks_uri,
                              const char *scope)
 {
     int ret;
 
-    dc_ctx->device_authorization_endpoint = get_json_string(dc_ctx, inp,
-                                               "device_authorization_endpoint");
+    dc_ctx->device_authorization_endpoint = device_auth_endpoint != NULL
+        ? talloc_strdup(dc_ctx, device_auth_endpoint)
+        : get_json_string(dc_ctx, inp, "device_authorization_endpoint");
     if (dc_ctx->device_authorization_endpoint == NULL) {
-        if (device_auth_endpoint_fallback == NULL) {
-            DEBUG(SSSDBG_CRIT_FAILURE, "Missing device_authorization_endpoint in "
-                                       "openid configuration.\n");
-            ret = EINVAL;
-            goto done;
-        }
-
-        dc_ctx->device_authorization_endpoint = talloc_strdup(
-                                                dc_ctx,
-                                                device_auth_endpoint_fallback);
-        if (dc_ctx->device_authorization_endpoint == NULL) {
-            ret = ENOMEM;
-            goto done;
-        }
-
-        DEBUG(SSSDBG_TRACE_FUNC,
-              "Using configured device authorization endpoint because it is "
-              "not advertised in the OpenID configuration.\n");
+        DEBUG(SSSDBG_CRIT_FAILURE, "Missing device authorization endpoint.\n");
+        ret = device_auth_endpoint != NULL ? ENOMEM : EINVAL;
+        goto done;
     }
-    dc_ctx->token_endpoint = get_json_string(dc_ctx, inp, "token_endpoint");
+    dc_ctx->token_endpoint = token_endpoint != NULL
+        ? talloc_strdup(dc_ctx, token_endpoint)
+        : get_json_string(dc_ctx, inp, "token_endpoint");
     if (dc_ctx->token_endpoint == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "Missing token_endpoint in openid "
-                                   "configuration.\n");
-        ret = EINVAL;
+        DEBUG(SSSDBG_CRIT_FAILURE, "Missing token endpoint.\n");
+        ret = token_endpoint != NULL ? ENOMEM : EINVAL;
         goto done;
     }
-    dc_ctx->userinfo_endpoint = get_json_string(dc_ctx, inp,
-                                                "userinfo_endpoint");
+    dc_ctx->userinfo_endpoint = userinfo_endpoint != NULL
+        ? talloc_strdup(dc_ctx, userinfo_endpoint)
+        : get_json_string(dc_ctx, inp, "userinfo_endpoint");
     if (dc_ctx->userinfo_endpoint == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "Missing userinfo_endpoint in openid "
-                                   "configuration.\n");
-        ret = EINVAL;
+        DEBUG(SSSDBG_CRIT_FAILURE, "Missing userinfo endpoint.\n");
+        ret = userinfo_endpoint != NULL ? ENOMEM : EINVAL;
         goto done;
     }
 
-    dc_ctx->jwks_uri = get_json_string(dc_ctx, inp, "jwks_uri");
+    dc_ctx->jwks_uri = jwks_uri != NULL
+        ? talloc_strdup(dc_ctx, jwks_uri)
+        : get_json_string(dc_ctx, inp, "jwks_uri");
     if (dc_ctx->jwks_uri == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Missing jwks_uri in openid "
                                    "configuration.\n");
@@ -372,7 +364,10 @@ done:
 }
 
 errno_t parse_openid_configuration(struct devicecode_ctx *dc_ctx,
-                                   const char *device_auth_endpoint_fallback,
+                                   const char *device_auth_endpoint,
+                                   const char *token_endpoint,
+                                   const char *userinfo_endpoint,
+                                   const char *jwks_uri,
                                    const char *scope)
 {
     int ret;
@@ -388,7 +383,8 @@ errno_t parse_openid_configuration(struct devicecode_ctx *dc_ctx,
         goto done;
     }
 
-    ret = get_endpoints(root, dc_ctx, device_auth_endpoint_fallback, scope);
+    ret = get_endpoints(root, dc_ctx, device_auth_endpoint, token_endpoint,
+                        userinfo_endpoint, jwks_uri, scope);
     if (ret != EOK) {
         DEBUG(SSSDBG_OP_FAILURE, "Failed to get endpoints.\n");
         goto done;

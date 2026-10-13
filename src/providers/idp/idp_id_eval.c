@@ -71,7 +71,7 @@ static errno_t store_json_user(struct idp_id_ctx *idp_id_ctx, json_t *user,
     }
 
     err = sss_idmap_gen_to_unix(idp_id_ctx->idmap_ctx,
-                                idp_id_ctx->token_endpoint,
+                                idp_id_ctx->idmap_seed,
                                 json_string_value(uuid), &uid);
     if (err != IDMAP_SUCCESS) {
         DEBUG(SSSDBG_OP_FAILURE, "Failed to generate UID for [%s][%s].\n",
@@ -190,7 +190,7 @@ static errno_t store_json_group(struct idp_id_ctx *idp_id_ctx, json_t *group,
     }
 
     err = sss_idmap_gen_to_unix(idp_id_ctx->idmap_ctx,
-                                idp_id_ctx->token_endpoint,
+                                idp_id_ctx->idmap_seed,
                                 json_string_value(uuid), &gid);
     if (err != IDMAP_SUCCESS) {
         DEBUG(SSSDBG_OP_FAILURE, "Failed to generate GID for [%s][%s].\n",

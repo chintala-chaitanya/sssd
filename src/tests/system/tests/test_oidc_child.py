@@ -27,6 +27,48 @@ args_get_device_code = (
 )
 
 
+@pytest.mark.importance("high")
+@pytest.mark.topology(KnownTopology.Keycloak)
+def test_oidc_child__metadata_endpoint_precedence(client: Client, keycloak: Keycloak):
+    """Explicit endpoints override discovery; missing endpoints are discovered."""
+
+    base = (
+        oidc_child_path
+        + " --get-openid-configuration "
+        + "--idp-type=keycloak:https://master.keycloak.test:8443/auth/admin/realms/master/ "
+        + "--issuer-url=https://master.keycloak.test:8443/auth/realms/master"
+    )
+    discovered = json.loads(client.host.conn.run(base).stdout)
+    assert discovered["token_endpoint"].endswith("/protocol/openid-connect/token")
+    assert discovered["userinfo_endpoint"].endswith("/protocol/openid-connect/userinfo")
+    assert discovered["device_authorization_endpoint"].endswith(
+        "/protocol/openid-connect/auth/device"
+    )
+
+    overridden = json.loads(
+        client.host.conn.run(
+            base
+            + " --userinfo-endpoint=https://example.test/userinfo"
+            + " --device-auth-endpoint=https://example.test/device"
+        ).stdout
+    )
+    assert overridden["token_endpoint"] == discovered["token_endpoint"]
+    assert overridden["userinfo_endpoint"] == "https://example.test/userinfo"
+    assert overridden["device_authorization_endpoint"] == "https://example.test/device"
+
+    all_overridden = json.loads(
+        client.host.conn.run(
+            base
+            + " --token-endpoint=https://example.test/token"
+            + " --userinfo-endpoint=https://example.test/userinfo"
+            + " --device-auth-endpoint=https://example.test/device"
+        ).stdout
+    )
+    assert all_overridden["token_endpoint"] == "https://example.test/token"
+    assert all_overridden["userinfo_endpoint"] == "https://example.test/userinfo"
+    assert all_overridden["device_authorization_endpoint"] == "https://example.test/device"
+
+
 @pytest.mark.importance("critical")
 @pytest.mark.topology(KnownTopology.Keycloak)
 def test_oidc_child__get_user(client: Client, keycloak: Keycloak):
