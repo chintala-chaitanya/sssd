@@ -1,10 +1,12 @@
 # OCI IAM Device Code login on Oracle Linux 10
 
 This runbook configures an Oracle Linux 10 host to obtain OCI IAM users/groups
-through SCIM and authenticate SSH users with OAuth 2.0 Device Code. It offers
-two mutually exclusive ways to install the custom SSSD RPMs: build them from
-the `oci-iam-idp` Git branch, or install them from the published Object Storage
-DNF repository.
+through SCIM and authenticate SSH users with the OAuth 2.0 Device Code flow.
+It covers two installation paths for the `oci-iam-idp-refactor` branch: build
+the RPMs locally or install them from the Object Storage DNF repository.
+
+The refactor branch adds issuer-based OIDC endpoint discovery and backend
+metadata caching. Both paths use the same SSSD configuration below.
 
 Never put the OCI client secret in Git, shell history, chat, or a ticket.
 
@@ -15,7 +17,7 @@ SSSD has two separate OCI flows:
 | Requirement | SSSD flow | OCI IAM interface |
 | --- | --- | --- |
 | Users, groups, memberships | ID provider lookup | Client Credentials grant and SCIM |
-| Interactive SSH login | PAM authentication | Device Authorization grant and OIDC userinfo |
+| Interactive SSH login | PAM authentication | Device Code flow and OIDC userinfo |
 
 `access_provider = simple` plus `simple_allow_groups` is authorization. It
 limits which OCI IAM users may log in; it does not authenticate them.
@@ -29,15 +31,16 @@ Create a confidential OCI IAM application with:
 3. Device Authorization enabled for browser authentication.
 4. An access-control group, for example `OL10_SSH_Users`.
 
-For `https://<DOMAIN>.identity.oraclecloud.com`, use:
+The identity-domain issuer is `https://<DOMAIN>.identity.oraclecloud.com`.
+The refactor build discovers its token and userinfo URLs from the issuer's
+OpenID configuration. OCI IAM does not advertise a device authorization
+endpoint in the tested metadata, so configure this endpoint as a fallback:
 
 ```text
-token:     https://<DOMAIN>.identity.oraclecloud.com/oauth2/v1/token
-userinfo:  https://<DOMAIN>.identity.oraclecloud.com/oauth2/v1/userinfo
-device:    https://<DOMAIN>.identity.oraclecloud.com/oauth2/v1/device
+device: https://<DOMAIN>.identity.oraclecloud.com/oauth2/v1/device
 ```
 
-Use a consistent endpoint family for every value.
+Use the same identity-domain host for the issuer, SCIM base URI, and device URL.
 
 ## Choose an RPM installation path
 
@@ -45,10 +48,10 @@ Choose **one** of these paths before continuing to [Configure SSSD](#configure-s
 
 | Path | Use it when | What the host does |
 | --- | --- | --- |
-| **A. Build locally from Git** | Developing the adapter or producing a new RPM release | Clones the branch, installs build dependencies, compiles, and installs local RPMs |
-| **B. Install from Object Storage repository** | Normal test, staging, or user host installation | Adds the public DNF repository and installs the published RPMs |
+| **A. Build the refactor locally** | Developing or building RPMs on this host | Builds and installs RPMs from the refactor source checkout |
+| **B. Install from Object Storage** | Installing the packaged build on a host | Adds the public DNF repository and installs its matching RPMs |
 
-Do not build on every target host once a tested RPM release is available.
+Do not build on every target host when using the repository path.
 
 ## Path A: Build and install the custom RPMs locally
 
@@ -78,13 +81,17 @@ sudo dnf install -y \
   systemtap-sdt-dtrace uid_wrapper valgrind-devel gnutls-utils openssh
 ```
 
-Clone through HTTPS unless the server has a GitHub SSH key:
+Use an existing copy of the `oci-iam-idp-refactor` checkout on the build host,
+or clone the branch through HTTPS unless the server has a GitHub SSH key:
 
 ```bash
-git clone --branch oci-iam-idp https://github.com/chintala-chaitanya/sssd.git \
+git clone --branch oci-iam-idp-refactor https://github.com/chintala-chaitanya/sssd.git \
   "$HOME/sssd-oci-iam"
 cd "$HOME/sssd-oci-iam"
 ```
+
+If using an existing local checkout, change into that checkout instead of
+cloning. Verify that it is on `oci-iam-idp-refactor` before building.
 
 Bootstrap, generate the real RPM spec, and build:
 
@@ -127,10 +134,9 @@ rpm -ql sssd-idp | grep '/oidc_child$'
 
 All installed SSSD packages should show the same custom version.
 
-## Path B: Install from the published Object Storage repository
+## Path B: Install from the Object Storage repository
 
-Use this path instead of Path A on a host that should consume the published
-release. The repository is public and currently contains the tested release at:
+Use the public DNF repository for the matching SSSD RPM set:
 
 ```text
 https://objectstorage.us-ashburn-1.oraclecloud.com/n/id3kvohtwgjy/b/sssd-oci-iam-rpms/o/sssd/2.14.0-oci.1/
@@ -152,8 +158,8 @@ repo_gpgcheck=0
 metadata_expire=300
 ```
 
-Validate that DNF can read the repository, then install the complete matching
-SSSD family:
+Validate that DNF can read the repository and selects the intended SSSD
+build. Then install the complete matching SSSD family:
 
 ```bash
 sudo dnf clean all
@@ -169,7 +175,8 @@ rpm -ql sssd-idp | grep '/oidc_child$'
 
 ## Configure SSSD
 
-Create `/etc/sssd/sssd.conf` and replace all placeholders:
+For RPMs built from `oci-iam-idp-refactor`, create `/etc/sssd/sssd.conf` and
+replace all placeholders:
 
 ```ini
 [sssd]
@@ -184,9 +191,10 @@ simple_allow_groups = OL10_SSH_Users
 idp_type = oci_iam:https://<DOMAIN>.identity.oraclecloud.com
 idp_client_id = <CLIENT_ID>
 idp_client_secret = <CLIENT_SECRET>
-idp_token_endpoint = https://<DOMAIN>.identity.oraclecloud.com/oauth2/v1/token
-idp_userinfo_endpoint = https://<DOMAIN>.identity.oraclecloud.com/oauth2/v1/userinfo
+idp_issuer_url = https://<DOMAIN>.identity.oraclecloud.com
+# Fallback: the tested OCI IAM metadata does not advertise this endpoint.
 idp_device_auth_endpoint = https://<DOMAIN>.identity.oraclecloud.com/oauth2/v1/device
+idp_metadata_cache_timeout = 3600
 
 # Identity/group lookup with Client Credentials
 idp_id_scope = urn:opc:idm:__myscopes__
@@ -208,6 +216,14 @@ entry_cache_nowait_percentage = 0
 interactive = true
 interactive_prompt = Complete OCI IAM authentication in the browser, then press ENTER.
 ```
+
+`idp_type` selects the OCI IAM SCIM adapter; `idp_issuer_url` supplies the OIDC
+issuer for endpoint discovery. The refactor caches discovered metadata in the
+SSSD backend for the configured number of seconds (3600 by default). When an
+issuer is set, discovered token and userinfo endpoints take precedence over
+explicit endpoint values. The configured device URL is used only if discovery
+does not advertise one. The cache is shared by requests handled by that
+backend and is reset when SSSD restarts.
 
 Protect the secret:
 
@@ -354,18 +370,20 @@ sudo sssctl user-checks --action auth --service sshd "$LOGIN_USER"
 ```
 
 The final command must show a Device Code URL and PIN. From another machine,
-use the Linux login name followed by the SSSD domain:
+use the short Linux username when it is unambiguous:
 
 ```bash
-ssh -l "username@oci_iam" <LINUX_HOST>
+ssh -l "username" <LINUX_HOST>
 ```
 
 For an OCI IAM username that is an email address, strip the email domain for
-the Linux login. For example, use `chaitanya.c.chintala@oci_iam` for SSH when
-the OCI IAM username is `chaitanya.c.chintala@oracle.com`; do **not** use
-`chaitanya.c.chintala@oracle.com@oci_iam`. When completing the Device Code
-flow in the browser, sign in as the full OCI IAM user
-`chaitanya.c.chintala@oracle.com`.
+the Linux login. For example, use `ssh -l 'chaitanya.c.chintala' <LINUX_HOST>`
+when the OCI IAM username is `chaitanya.c.chintala@oracle.com`. This short-name
+SSH login was tested on an OL10 host with only the `oci_iam` SSSD domain. If
+another SSSD domain or a local user has the same short name, use the explicit
+SSSD domain form `ssh -l 'chaitanya.c.chintala@oci_iam' <LINUX_HOST>` to avoid
+ambiguity. Do **not** use `chaitanya.c.chintala@oracle.com@oci_iam`. In the
+browser Device Code step, always sign in with the full OCI IAM username.
 
 Keep an existing administrator session open while testing. Validate both an
 allowed OCI user and a user removed from `OL10_SSH_Users`.
@@ -379,6 +397,9 @@ retrieves current OCI IAM data as necessary.
 The upstream default `entry_cache_timeout` is 5400 seconds (90 minutes).
 The five-minute values above are an initial privileged-access policy; choose
 values appropriate for required revocation speed, availability, and OCI load.
+These identity/group caches are separate from the refactor's OIDC metadata
+cache. Metadata refresh failures are retried after five seconds rather than
+once per request; that retry delay does not cache user or group data.
 Do not use `sss_cache -E` as a normal operations process. It is useful for
 validation and emergency troubleshooting.
 
